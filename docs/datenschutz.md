@@ -22,7 +22,7 @@ Every lead stores `source` and `sourced_at`; the email footer says where the con
 - **§ 7 UWG (German unfair competition law):** email advertising generally needs **prior consent, also in B2B**; only a narrow
   "presumed interest" exception exists, decided case by case. Nexsale's own Wissen FAQ says the same. → **Open point 1:** the
   legal basis for real cold sending must be confirmed per campaign/client before `DEMO_MODE` is switched off.
-- **Demo safety (active now):** `DEMO_MODE=true` sends every email only to the test inbox with `[TEST]`; a guard before the only
+- **Demo safety (active now):** `DEMO_MODE=true` sends every prospect email only to the test inbox (internal ones only to the sender), marked with the header `X-Nexsale-Test: true`; a guard before the only
   send node blocks any recipient not on `TEST_RECIPIENT_ALLOWLIST`; real sending needs `DEMO_MODE=false` **and**
   `ALLOW_REAL_SENDING=true`. Tested in every test run (safety tests S1, S2).
 

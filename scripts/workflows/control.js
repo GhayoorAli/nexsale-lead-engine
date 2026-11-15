@@ -25,7 +25,7 @@ return [{ json: { ok: auth.ok, reason: auth.reason, user: auth.user, isAction, q
   w.ifTrue('Action?', "$('Login').first().json.isAction");
   // pages
   w.at(12, 1);
-  w.code('Render page', ['airtable', 'report', 'dashboard', 'campaign', 'controlCenter'], `
+  w.code('Render page', ['airtable', 'report', 'dashboard', 'campaign', 'validateEmails', 'controlCenter'], `
 const cfg = $('Config').first().json.cfg;
 const l = $('Login').first().json;
 const all = (n) => M.airtable.fromItems($(n).all());
@@ -39,7 +39,7 @@ return [{ json: { html } }];`);
   w.respond('Show page', '$json.html', { html: true });
   // actions
   w.at(12, -1);
-  w.code('Plan action', ['airtable', 'campaign', 'controlCenter'], `
+  w.code('Plan action', ['airtable', 'campaign', 'validateEmails', 'controlCenter'], `
 const cfg = $('Config').first().json.cfg;
 const l = $('Login').first().json;
 const all = (n) => M.airtable.fromItems($(n).all());
@@ -65,7 +65,8 @@ return [{ json: a }];`);
   w.ifTrue('Follow-up?', "($('After').first().json.ops || []).length > 0");
   run('Run follow-up');
   w.at(22, -1);
-  w.add('Back to page', 'n8n-nodes-base.respondToWebhook', 1.1, { respondWith: 'redirect', redirectURL: "={{ '/webhook/app' + $('After').first().json.redirect }}", options: { responseCode: 303 } });
+  // absolute URL: n8n prefixes "http://" to a redirect without "://" (live bug: "/webhook/app" became "http:///webhook/app")
+  w.add('Back to page', 'n8n-nodes-base.respondToWebhook', 1.1, { respondWith: 'redirect', redirectURL: `={{ ${CFG('n8nBaseUrl')} + '/webhook/app' + $('After').first().json.redirect }}`, options: { responseCode: 303 } });
   w.chain('Page request', 'Login', 'Logged in?');
   w.connect('Action request', 'Login');
   w.connect('Logged in?', 'Config', 0);

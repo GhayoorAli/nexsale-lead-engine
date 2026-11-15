@@ -30,7 +30,7 @@ return [{ json: {
 }
 
 function sendEmail() {
-  const w = new Workflow('13_send_email', 'Nexsale 13 – Send email (guarded)', { description: 'The ONLY place that sends email. Blocklist + allowlist guard right before the send node.' });
+  const w = new Workflow('13_send_email', 'Nexsale 13 – Send email (guarded)', { description: 'The ONLY place that sends email. Blocklist + allowlist guard right before the send node. DEMO_MODE: prospect mails → test inbox, internal notifications → sender, header X-Nexsale-Test.' });
   w.subTrigger('When called');
   w.config();
   w.atList('Load Blocklist', 'Blocklist', null, { notes: 'Blocklist is checked before every send' });
@@ -45,12 +45,13 @@ for (const m of msgs) {
   const hit = originals.find((a) => M.guard.isBlocked(a, blocklist));
   if (hit) throw new M.guard.GuardError('Guard: recipient ' + hit + ' is on the Blocklist (ref ' + m.ref + ')');
   const g = M.guard.guardEmail(m, cfg); // throws -> run stops -> error handler alerts Slack
-  const raw = M.mime.buildRawEmail({ from: cfg.senderEmail, fromName: m.fromName, to: g.to, subject: g.subject, body: m.body, inReplyTo: m.inReplyTo, listUnsubscribe: cfg.senderEmail ? '<mailto:' + cfg.senderEmail + '?subject=STOP>' : '' });
+  const raw = M.mime.buildRawEmail({ from: cfg.senderEmail, fromName: m.fromName, to: g.to, subject: g.subject, body: m.body, html: m.html, inReplyTo: m.inReplyTo,
+    extraHeaders: g.testMarker ? { 'X-Nexsale-Test': 'true' } : {}, listUnsubscribe: cfg.senderEmail ? '<mailto:' + cfg.senderEmail + '?subject=STOP>' : '' });
   const body = { raw };
   if (m.threadId) body.threadId = m.threadId;
   out.push({ json: { ref: m.ref, gmail: body, sent_to: g.to, original_to: g.original_to || g.to, subject: g.subject, purpose: m.purpose || 'outreach' } });
 }
-return out;`, { notes: 'SAFETY GUARD: stops the run if any recipient is not on TEST_RECIPIENT_ALLOWLIST; DEMO_MODE rewrites To and adds [TEST].' });
+return out;`, { notes: 'SAFETY GUARD: stops the run if any recipient is not on TEST_RECIPIENT_ALLOWLIST; DEMO_MODE rewrites To (internal → sender, all others → test inbox) and marks the mail with X-Nexsale-Test.' });
   w.ifTrue('Mock?', `${CFG('mock')}`);
   w.at(5, 1);
   w.http('Send via mock Gmail', { method: 'POST', url: `={{ ${CFG('gmailUrl')} }}/users/me/messages/send`, body: '$json.gmail', notes: 'MOCK_EXTERNAL=true: test inbox in tests/mock_server' });

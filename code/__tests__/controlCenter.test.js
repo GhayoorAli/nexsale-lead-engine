@@ -82,6 +82,15 @@ describe('pages', () => {
     expect((h.match(/value="meeting_held"/g) || []).length).toBe(1);
     expect(h).toMatch(/Briefing Text/);
   });
+  test('meetings: "Termin absagen" only on upcoming booked meetings, with a confirm', () => {
+    const h = render('meetings');
+    expect((h.match(/value="meeting_cancel"/g) || []).length).toBe(1);
+    expect(h).toMatch(/name="action" value="meeting_cancel"><input type="hidden" name="id" value="M2">/);
+    expect(h).toMatch(/confirm\('Termin wirklich absagen\?/);
+    expect(CC.cancellable({ status: 'Reminded', start_time: '2026-11-16T09:00:00Z' }, now)).toBe(true);
+    expect(CC.cancellable({ status: 'Cancelled', start_time: '2026-11-16T09:00:00Z' }, now)).toBe(false);
+    expect(CC.cancellable({ status: 'Booked', start_time: '2026-11-15T09:00:00Z' }, now)).toBe(false);
+  });
   test('clients list and edit form; new client form', () => {
     expect(render('clients')).toMatch(/Nexsale GmbH<\/b><\/a> <span class="badge info">Standard/);
     const f = render('client', { id: 'cR' });
@@ -170,6 +179,9 @@ describe('actions', () => {
     expect(plan({ action: 'task_done', id: 'T1' }).ops[0].body.action).toBe('task_called');
     expect(plan({ action: 'task_done', id: 'x' }).error).toMatch(/nicht gefunden/);
     expect(plan({ action: 'meeting_held', id: 'x' }).error).toMatch(/nicht gefunden/);
+    expect(plan({ action: 'meeting_cancel', id: 'M2' }).ops).toEqual([expect.objectContaining({ kind: 'kick', path: 'control-action', body: expect.objectContaining({ action: 'meeting_cancel', recordId: 'M2' }) })]);
+    expect(plan({ action: 'meeting_cancel', id: 'M1' }).error).toMatch(/nicht mehr abgesagt/); // already started
+    expect(plan({ action: 'meeting_cancel', id: 'x' }).error).toMatch(/nicht gefunden/);
     expect(plan({ action: 'hack' }).error).toBe('Unbekannte Aktion');
     expect(CC.planAction().error).toBe('Unbekannte Aktion');
   });
@@ -180,4 +192,85 @@ test('no link opens a new tab (n8n sandboxes webhook pages; a new tab would inhe
   expect(render('campaign', { id: 'k1' })).not.toMatch(/_blank/);
   expect(render('lead', { id: 'L1' })).not.toMatch(/_blank/);
   expect(render('system')).toMatch(/<a href="\/">n8n \(Workflows, Ausführungen\)<\/a>/);
+});
+
+describe('editing emails by hand, approving a held lead, rewriting a campaign', () => {
+  const VE = require('../validateEmails');
+  const client = { id: 'cR', name: 'Real Service GmbH', sender_name: 'Laura Schmidt', sender_title: 'Vertrieb', sender_company: 'Real Service GmbH', sender_company_footer: 'Real Service GmbH · Berlin', offer: 'Reinigung', writing_notes: 'kurz' };
+  const footer = VE.buildFooter(client);
+  const mk = (text) => VE.appendFooter(VE.ensureFrame(text, { contactName: 'Petra Klein', contactSalutation: 'Frau', signature: VE.buildSignature(client), paragraphs: true }), footer);
+  const good1 = 'Sie betreuen Wohnanlagen in Pankow.\n\nMein Name ist Laura Schmidt. Wir reinigen Treppenhäuser mit festen Teams.\n\nPasst Ihnen ein kurzes Telefonat?';
+  const goodN = 'Kurzer Nachtrag zu meiner Nachricht.\n\nPasst Ihnen Dienstag oder Donnerstag?';
+  const d2 = () => {
+    const d = data();
+    d.clients = [d.clients[0], client];
+    d.campaigns[1] = Object.assign({}, d.campaigns[1], { status: 'Ready' });
+    d.leads.push({ id: 'L9', campaign: ['k2'], campaign_record_id: 'k2', status: 'Needs review', company_name: 'HV Mitte', contact_name: 'Petra Klein', contact_salutation: 'Frau', needs_review_reason: 'quality 65' });
+    [1, 2, 3, 4].forEach((n) => d.emails.push({ id: 'X' + n, lead: ['L9'], lead_record_id: 'L9', step: n, subject: n === 1 ? 'Reinigung für HV Mitte' : 'Re', body: mk(n === 1 ? good1 : goodN), status: 'Draft' }));
+    return d;
+  };
+  const plan = (form, d) => CC.planAction(form, d || d2(), { user: 'admin', now });
+  const page = (p, params, d) => CC.renderPage({ page: p, params, data: d || d2(), cfg: { demoMode: true }, now, user: 'admin' });
+
+  test('lead page: each unsent email is editable (message text only), a held lead can be approved', () => {
+    const h = page('lead', { id: 'L9' });
+    expect((h.match(/value="email_save"/g) || []).length).toBe(4);
+    expect(h).toMatch(/<textarea name="text" required>Sie betreuen Wohnanlagen in Pankow\./); // no salutation in the editor
+    expect(h).not.toMatch(/<textarea name="text" required>Sehr geehrte/);
+    expect(h).toMatch(/value="lead_approve"/);
+    expect(h).toMatch(/Zurückgehalten: quality 65/);
+    expect(page('lead', { id: 'L2' })).not.toMatch(/value="email_save"/); // sent / contacted lead in a live campaign: read only
+  });
+
+  test('email_save: framed with salutation, signature and footer, rules checked, saved', () => {
+    const p = plan({ action: 'email_save', id: 'X2', subject: 'Re', text: 'Ein Gedanke noch zu Ihren Wohnanlagen in Mitte.\r\n\r\nWann passt Ihnen ein kurzes Gespräch?' });
+    const f = p.ops[0].body.records[0].fields;
+    expect(f.body).toMatch(/^Sehr geehrte Frau Klein,\n\nEin Gedanke noch/);
+    expect(f.body).toMatch(/Mit freundlichen Grüßen\n\nLaura Schmidt\nVertrieb\nReal Service GmbH/);
+    expect(f.body).toMatch(/Antworten Sie mit STOP/);
+    expect(f.edited_by).toBe('Control Center (admin)');
+    expect(p.redirect).toMatch(/E-Mail%202%20gespeichert/);
+  });
+
+  test('email_save refuses edits that break the rules – nothing is saved', () => {
+    const bad = (form) => plan(Object.assign({ action: 'email_save', id: 'X1', subject: 'Reinigung für HV Mitte' }, form));
+    expect(bad({ text: 'Wir sind ein zuverlässiger Partner für Firmen wie Ihre. Passt es?' }).error).toMatch(/filler phrase/);
+    expect(bad({ text: 'Wir reinigen gut.' }).error).toMatch(/no question/);
+    expect(bad({ text: Array(95).fill('Wort').join(' ') + '?' }).error).toMatch(/words/);
+    expect(bad({ subject: 'Ein sehr langer Betreff für Sie hier', text: good1 }).error).toMatch(/subject has 7 words/);
+    expect(bad({ text: 'Hast du Zeit?' }).error).toMatch(/informal/);
+    expect(bad({ text: '' }).error).toMatch(/nicht leer/);
+    expect(bad({ text: 'x' }).ops).toEqual([]);
+    expect(plan({ action: 'email_save', id: 'E3', subject: 'S', text: 'x?' }).error).toMatch(/schon gesendet/);
+    expect(plan({ action: 'email_save', id: 'nope' }).error).toMatch(/nicht gefunden/);
+  });
+
+  test('lead_approve: all 4 emails valid → emails Approved by a person, lead Approved; invalid → refused', () => {
+    const p = plan({ action: 'lead_approve', id: 'L9' });
+    expect(p.ops[0].body.records).toHaveLength(4);
+    expect(p.ops[0].body.records[0].fields).toEqual({ status: 'Approved', approved: true, approved_by: 'Control Center (admin)' });
+    expect(p.ops[1].body.records[0].fields).toEqual({ status: 'Approved', needs_review_reason: null });
+    const d = d2();
+    d.emails.find((e) => e.id === 'X3').body = mk('Wir sind umfassend aufgestellt. Passt es?');
+    expect(plan({ action: 'lead_approve', id: 'L9' }, d).error).toMatch(/step 3: filler phrase "umfassend"/);
+    expect(plan({ action: 'lead_approve', id: 'L1' }).error).toMatch(/Nur zurückgehaltene Leads/);
+  });
+
+  test('campaign_rewrite: deletes unsent emails of approved/held leads and redrafts them, only before launch', () => {
+    const p = plan({ action: 'campaign_rewrite', id: 'k2' });
+    const del = p.ops.filter((o) => o.method === 'DELETE');
+    expect(del.map((o) => o.query).join('&')).toBe('records[]=X1&records[]=X2&records[]=X3&records[]=X4');
+    const patch = p.ops.find((o) => o.table === 'Leads');
+    expect(patch.body.records.map((r) => r.id)).toEqual(['L9']); // L2 is Contacted → untouched
+    expect(p.ops[p.ops.length - 1]).toEqual({ kind: 'kick', path: 'ai-emails-run', body: {} });
+    const d = d2();
+    d.campaigns[1].status = 'Live';
+    expect(plan({ action: 'campaign_rewrite', id: 'k2' }, d).error).toMatch(/vor dem Start/);
+    expect(page('campaign', { id: 'k2' })).toMatch(/value="campaign_rewrite"/);
+  });
+
+  test('client form has the writing notes field', () => {
+    expect(page('client', { id: 'cR' })).toMatch(/name="writing_notes"/);
+    expect(plan({ action: 'client_save', id: 'cR', name: 'Real Service GmbH', sender_name: 'L', sender_company_footer: 'F', offer: 'O', writing_notes: ' immer kurz ' }).ops.pop().body.records[0].fields.writing_notes).toBe('immer kurz');
+  });
 });

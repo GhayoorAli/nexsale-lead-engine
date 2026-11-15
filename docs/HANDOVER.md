@@ -3,9 +3,9 @@
 This guide is for someone who has **never seen this project**. Follow it from top to bottom and you will have the complete
 system running on your own Mac, launch campaigns in three clicks, and know how to test, operate, change and troubleshoot it.
 
-Keep the safety rule in mind from the first minute: **test mode is on by default**. Every email the system writes goes
-only to your own test inbox, with `[TEST]` in front of the subject. Real companies receive nothing until the go-live
-checklist in section 9 is done.
+Keep the safety rule in mind from the first minute: **test mode is on by default**. Every email the system writes for a
+prospect goes only to your own test inbox (marked with the hidden header `X-Nexsale-Test: true`); internal notifications go
+only to the sender inbox. Real companies receive nothing until the go-live checklist in section 9 is done.
 
 ---
 
@@ -256,7 +256,9 @@ SLACK_CHANNEL=#leads
 ### 3.10 Calendly (bookings)
 
 1. Create one event type, **15 minutes**. Copy its link (e.g. `https://calendly.com/<you>/15min`).
-2. **Integrations & apps → API and webhooks → Personal access tokens** → generate a token (read access is enough).
+2. **Integrations & apps → API and webhooks → Personal access tokens** → generate a token with these scopes:
+   **Users: read**, **Scheduled events: read** and **Scheduled events: write** (write lets the engine cancel a meeting
+   when the lead says no; without it everything else works and Slack asks you to cancel by hand).
 3. In `.env`: `CALENDLY_LINK=<event link>`, `CALENDLY_TOKEN=<token>`. Leave `CALENDLY_WEBHOOK_SIGNING_KEY` empty – the free
    plan has no webhooks, so workflow `07d_calendly_poll` checks for new bookings every 3 minutes.
 4. Optional (better meeting briefs): in the event's **Invitee questions** add e.g. "Fläche in m²?" and "Wann endet Ihr
@@ -298,6 +300,7 @@ edit it. Each client is one company the system writes for. The form checks the i
 | `sender_phone`, `sender_website` | optional signature lines | +49 30 …, https://… |
 | `sender_company_footer` | legal footer line (Impressum data: company, address, managing director, register) | Real Service GmbH · Musterstr. 1 · … |
 | `offer` | what this client sells, in 1–2 sentences. **The AI only promises what is written here.** | Wir übernehmen die Unterhaltsreinigung … |
+| `writing_notes` | style rules for every email of this client | immer das Reinigungsprotokoll erwähnen, nie "günstig" schreiben, kurz |
 | `qualifying_questions` | asked in the answer to interested leads | Wie groß ist die Fläche, wann endet Ihr Vertrag? |
 | `calendly_link` | the client's booking link | https://calendly.com/… |
 | `target_positive_replies`, `target_meetings` | monthly guarantee for the dashboard | 20, 4 |
@@ -325,7 +328,7 @@ Run these in order. Each takes a minute.
 | 3 | Start a campaign: name "Test Leipzig", client Nexsale GmbH, industry "Reinigungsunternehmen", city "Leipzig", size 10-49, target role "Geschäftsführer, Inhaber", Max leads 15 | the campaign page; leads appear within about a minute, status changes to Ready |
 | 4 | Slack #leads | "Campaign ready: Test Leipzig", For Nexsale GmbH, 3 samples, buttons |
 | 5 | Press **Approve and launch** (in Slack or on the campaign page in the Control Center) | status Live; Slack shows "Approve and launch by …" and "… is live" |
-| 6 | Test prospect inbox (check Spam the first time) | `[TEST] …` emails signed by the client's sender |
+| 6 | Test prospect inbox (check Spam the first time) | the first emails, signed by the client's sender (they look exactly like real ones; the sender inbox also gets the internal "Kampagne bereit" email) |
 | 7 | Reply to one: *Klingt interessant, haben Sie nächste Woche Zeit?* | within ~2 minutes: an answer with the booking link and the qualifying questions in the same thread; Slack "Auto-answered …" |
 | 8 | Book a slot through that link | within ~3 minutes: Slack "Meeting booked with …" with the meeting brief; a deal in HubSpot |
 
@@ -343,11 +346,11 @@ Open **http://localhost:5678/webhook/app** (bookmark it) and log in. Areas in th
 |---|---|
 | **Übersicht** | what needs you now (replies to approve or sort, campaigns ready to launch or blocked, meetings to mark, open tasks, errors), guarantee per client, key figures |
 | **Kampagnen** | every campaign with status and numbers; **Approve and launch**, **Pausieren**, **Fortsetzen**, **Beenden** |
-| Campaign page | its leads (contact, source, email, score, quality, status, reason or trigger), costs, link to the live status page |
-| Lead page | all details, the 4 emails, replies, meeting brief; **E-Mails neu schreiben** (before launch) and **Lead ausschließen** |
+| Campaign page | its leads (contact, source, email, score, quality, status, reason or trigger), costs, link to the live status page; **Alle E-Mails neu schreiben** (before launch, e.g. after improving the offer or writing notes) |
+| Lead page | all details, replies, meeting brief; **each unsent email can be edited** (subject + text; salutation, signature and footer are added automatically and every rule is checked before saving); **Lead freigeben** for a lead held for review; **E-Mails neu schreiben** (before launch) and **Lead ausschließen** |
 | **+ Neue Kampagne** | click 1, with a dropdown of your clients |
 | **Antworten** | drafted answers to **edit and approve** (or discard), unclear replies to **sort**, all replies |
-| **Termine** | upcoming and past meetings with the AI brief; **Hat stattgefunden / No-show** |
+| **Termine** | upcoming and past meetings with the AI brief; **Hat stattgefunden / No-show** after the start; **Termin absagen** before it (cancels in Calendly too, the invitee gets Calendly's cancellation email, the lead goes back to Interested) |
 | **Clients** | add and edit clients |
 | **System** | safety switches (test mode), open tasks (**Erledigt**), last errors, links to n8n and Airtable |
 | **Dashboard ↗** | the results page (also password-protected) |
@@ -396,7 +399,11 @@ Press **Submit**. You land on the **live status page**:
   An AI quality check then scores the sequence using quoted evidence: is the opening a real detail of this company, is
   anything invented? Below 80 → rewritten once → still below 80 → "Needs review" (not sent).
 
-### 6.3 Click 2 – review (Slack or Control Center)
+### 6.3 Click 2 – review (Slack, email or Control Center)
+
+The sender inbox also receives a "Kampagne bereit" email (summary, 3 samples, button to the campaign). If an email is not
+good enough: edit it on the lead page, approve held leads, or improve the client's offer / writing notes and use
+**Alle E-Mails neu schreiben**.
 
 The "Campaign ready" message shows:
 - the client and the sender,
@@ -425,7 +432,7 @@ Then the campaign goes Live. If a check fails, Slack lists what failed (e.g. "At
 
 | | Test mode (`DEMO_MODE=true`) | Real mode |
 |---|---|---|
-| Recipient | always the test inbox, subject starts with `[TEST]` | the lead |
+| Recipient | always the test inbox (hidden test marker, no visible prefix) | the lead |
 | Timing | email 1 now, follow-ups after 3, 7, 14 **minutes** | after 3, 7, 14 **days**, Mon–Fri 08:00–17:00 |
 | Pace | a few per minute | 60–180 s apart, max 40 per campaign per day |
 
@@ -456,7 +463,11 @@ Every reply in the sender inbox is matched to its lead and sorted:
 - **24 h before:** a reminder email to the lead.
 - **After the meeting:** Slack asks "held or no-show?" (buttons). A no-show creates a call task.
 - **Cancelled in Calendly:** the meeting is marked cancelled and the lead goes back to Interested.
-- **"No" after booking by email:** the meeting is marked cancelled, Slack reminds you to cancel it in Calendly, and the HubSpot deal is Closed lost.
+- **"No" or STOP after booking by email:** the meeting (booked or already reminded) is cancelled **in Airtable and in
+  Calendly automatically**: Calendly sends the invitee its cancellation email and the slot is free again. The HubSpot deal
+  is Closed lost, and Slack says "Meeting on … cancelled in Calendly automatically". If Calendly refuses (token without
+  write scope, event already gone), the meeting is still marked cancelled and Slack says *please cancel it in Calendly
+  too* with Calendly's answer.
 
 ### HubSpot
 
@@ -467,7 +478,7 @@ qualified to buy; No-show or a later "no" → closed lost.
 ### Reports
 
 - Every hour the metrics are written to Airtable.
-- Every Monday at 08:00 a weekly report goes to Slack and by email (in test mode to the test inbox).
+- Every Monday at 08:00 a weekly report goes to Slack and by email to the sender inbox.
 
 ---
 
@@ -498,7 +509,7 @@ curl -X POST http://localhost:5678/webhook/delete-lead -H "Content-Type: applica
 
 | Setting in `.env` | Effect |
 |---|---|
-| `DEMO_MODE=true` | every email goes to `TEST_PROSPECT_EMAIL` with `[TEST]`; days become minutes |
+| `DEMO_MODE=true` | every prospect email goes to `TEST_PROSPECT_EMAIL`, internal notifications to `SENDER_EMAIL`; all marked with the header `X-Nexsale-Test: true`; days become minutes |
 | `TEST_RECIPIENT_ALLOWLIST` | a guard right before the only send node stops the run if any recipient is not on this list (empty list = nothing is sent) |
 | `ALLOW_REAL_SENDING=false` | even with `DEMO_MODE=false`, real sending stays blocked until this is `true` |
 | Blocklist (Airtable) | checked before every single email |
@@ -614,6 +625,7 @@ Design decisions with their reasons are numbered in `docs/decisions.md`. Read th
 | A red error alert in Slack | a workflow failed; the alert names it | open n8n → Executions → the failed run shows the node and the message |
 | No emails sent / guard error | recipient not on the allowlist, or Gmail login expired | check `TEST_RECIPIENT_ALLOWLIST`; open the Gmail credential in n8n → Sign in with Google |
 | Replies are not picked up | Gmail login expired (7 days in Testing mode) or `07a_gmail_inbox` inactive | sign in again; activate the workflow |
+| Slack says "please cancel it in Calendly too (Calendly: 403 …)" | the token lacks the **Scheduled events: write** scope, or the event was already cancelled | create a token with the scopes in 3.10, put it in `.env`, `docker compose up -d --force-recreate n8n` |
 | Bookings do not appear | `CALENDLY_TOKEN` wrong, or the booking was not made through the link in the answer | check the token; the link carries the lead id (`utm_content`) |
 | Click 3 does nothing but Slack says "Launch blocked … At least 5 Approved leads" | too few approved leads for a launch (5 in test mode, 20 real) | run a campaign with a higher Max leads, or a bigger city |
 | "Unknown field name" from Airtable | the base is older than the code | `.venv/bin/python setup/create_airtable_base.py` |

@@ -129,3 +129,11 @@ Live tests are blocked on accounts and keys (docs/blockers.md).
   (26 checks). Slack actions reused through 11's internal entry.
 - Security: ngrok traffic policy (only Slack clicks pass), login on dashboard and status page. Verified live: 401 without
   login, 200 with, 403 from the internet.
+
+## Automatic Calendly cancellation (2026-11-15)
+
+- A "not interested" or STOP reply from a lead with a booked or reminded meeting now cancels the meeting in Airtable **and in
+  Calendly** (API `POST /scheduled_events/{uuid}/cancellation`). If Calendly refuses, Slack asks for a manual cancel. New
+  Control Center button **Termin absagen** (`meeting_cancel` via 11_slack_actions). Decision 58.
+- Tests: Jest 439 passed; pytest 14; L2 20/20 scenarios (07w 24 checks incl. a forced Calendly 403, 16 35 checks);
+  L3 16/16; L4 2/2 runs with 3 clicks. Live: deployed, token checked (users/me 200). A real cancel needs a test booking.

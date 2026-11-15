@@ -75,7 +75,8 @@ test('unknown prompt', () => expect(v('nope', {}).ok).toBe(false));
 test('prepareByPrompt frames email sequences only', () => {
   const d = { emails: [{ step: 1, subject: 'S', body: 'Text.\\nZweite Zeile' }] };
   const p = VA.prepareByPrompt('email_sequence', d, { contactName: 'Anna Muster', senderName: 'Max' }, VE);
-  expect(p.emails[0].body).toBe('Guten Tag Anna Muster,\n\nText.\nZweite Zeile\n\nMit freundlichen Grüßen\n\nMax');
+  // single line breaks become paragraphs (decision 55)
+  expect(p.emails[0].body).toBe('Guten Tag Anna Muster,\n\nText.\n\nZweite Zeile\n\nMit freundlichen Grüßen\n\nMax');
   expect(VA.prepareByPrompt('reply_classifier', d, {}, VE)).toBe(d);
   expect(VA.prepareByPrompt('email_sequence', { nope: 1 }, {}, VE)).toEqual({ nope: 1 });
 });

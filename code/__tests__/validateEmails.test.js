@@ -184,3 +184,29 @@ describe("Nexsale's own rules (blog): follow-ups max 50 words, subject max 5 wor
     expect(V.validateEmail(mail(2, 20, 'Ein langer Betreff mit sehr vielen Worten'))).toEqual([]);
   });
 });
+
+describe('paragraphs are formatted by code, words never change (decision 55)', () => {
+  const block = 'Sie verwalten über 7.000 Einheiten in Berlin und Cottbus, darunter viele Wohnanlagen mit Treppenhäusern. Mein Name ist Laura Schmidt, Vertrieb bei Real Service GmbH. Wir übernehmen die regelmäßige Unterhaltsreinigung von Wohnanlagen und Treppenhäusern in Berlin mit festen Teams. Passt Ihnen ein kurzes Telefonat von 15 Minuten?';
+  test('a single block becomes opening / middle / closing question', () => {
+    const p = V.formatParagraphs(block).split('\n\n');
+    expect(p).toHaveLength(3);
+    expect(p[0]).toMatch(/^Sie verwalten über 7\.000 Einheiten/);
+    expect(p[2]).toBe('Passt Ihnen ein kurzes Telefonat von 15 Minuten?');
+    expect(V.formatParagraphs(block).replace(/\s+/g, ' ')).toBe(block.replace(/\s+/g, ' ')); // same words
+  });
+  test('single line breaks become paragraphs; existing paragraphs and short texts stay', () => {
+    expect(V.formatParagraphs('Satz eins.\nSatz zwei?')).toBe('Satz eins.\n\nSatz zwei?');
+    expect(V.formatParagraphs('A.\n\nB?')).toBe('A.\n\nB?');
+    expect(V.formatParagraphs('Kurz. Passt es?')).toBe('Kurz. Passt es?');
+    expect(V.formatParagraphs('')).toBe('');
+    // abbreviations and numbers never split a sentence
+    const abbr = 'Sie betreuen z. B. Praxen mit ca. 1.200 m² in Mitte und dazu viele Büros im Umland mit festen Teams und klaren Zeiten. Wir reinigen täglich nach Plan, dokumentieren jede Reinigung sauber für Sie und schicken Ihnen monatlich einen kurzen Bericht. Passt Ihnen ein kurzes Telefonat?';
+    expect(V.formatParagraphs(abbr).split('\n\n')).toEqual(['Sie betreuen z. B. Praxen mit ca. 1.200 m² in Mitte und dazu viele Büros im Umland mit festen Teams und klaren Zeiten.',
+      'Wir reinigen täglich nach Plan, dokumentieren jede Reinigung sauber für Sie und schicken Ihnen monatlich einen kurzen Bericht.', 'Passt Ihnen ein kurzes Telefonat?']);
+  });
+  test('the formatted first email passes the paragraph rule', () => {
+    const body = V.ensureFrame(block, { contactName: 'A B', paragraphs: true });
+    expect(V.validateEmail({ step: 1, subject: 'Reinigung für ABAKUS', body })).toEqual([]);
+    expect(V.validateEmail({ step: 1, subject: 'Reinigung für ABAKUS', body: V.ensureFrame(block, { contactName: 'A B' }) }).join()).toMatch(/one block of text/);
+  });
+});

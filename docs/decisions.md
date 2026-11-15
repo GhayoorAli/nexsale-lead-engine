@@ -229,3 +229,30 @@ Choices that PLAN.md / CLAUDE.md left open, or where the plan had to be adapted.
 54. **Nothing but Slack clicks is reachable from the internet.** Found while planning 53: the dashboard and status page were
     public through the ngrok address. `ngrok/policy.yml` (traffic policy) answers every path except
     `/webhook/slack-actions` and `/webhook/calendly` with 403; the dashboard and status page also need the login now.
+55. **Paragraphs and redirects are done by code.** (a) gpt-4o-mini often writes email 1 as one block or with single line
+    breaks; 5 of 12 live Hausverwaltung sequences were rejected for that alone. Code now formats paragraphs without changing a
+    word (`formatParagraphs`: single breaks → paragraphs; a 40+ word block → first sentence / middle / closing question;
+    abbreviations like "z. B." and numbers like "7.000" never split). Re-run with the real AI: 5 of those 6 pass (quality 90).
+    (b) Control Center redirects use the full address: n8n prefixes "http://" to a redirect without "://", which sent the
+    browser to the host "webhook" after "Kampagne starten". The workflow test now follows the redirect.
+56. **No visible [TEST]; internal emails only to the sender; professional internal layout** (user's decisions). In
+    DEMO_MODE the guard still rewrites every prospect-facing email to `TEST_PROSPECT_EMAIL` and still enforces the allowlist,
+    but marks it with the header `X-Nexsale-Test: true` instead of a subject prefix, so test emails look exactly like real
+    ones. Internal notifications (`purpose` internal/report: "Kampagne bereit", weekly report) go only to `SENDER_EMAIL`,
+    never to the test prospect inbox. "Kampagne bereit" is now German, plain text + HTML (summary, 3 samples with
+    paragraphs, button to the campaign in the Control Center). Prospect emails stay plain text (deliverability). Safety tests
+    S2/06 now check the marker header and the routing.
+57. **Improving emails without code:** (1) every unsent email can be edited in the Control Center (subject + message
+    text; salutation, signature and footer are added by code and every rule is checked before saving – a rule-breaking
+    edit is refused); a held lead can be approved by a person (`approved_by`, accepted by the launch check). (2) Writing
+    notes per client (`Clients.writing_notes`), used by the sequence, answer and referral prompts. (3) "Alle E-Mails neu
+    schreiben" per campaign before launch (Module 4 handles 20 per run, the rest on its 5-minute schedule).
+
+58. **Automatic Calendly cancellation:** when a lead with a booked (or already reminded) meeting answers "not interested" or
+    STOP, 07_replies first marks the meeting Cancelled in Airtable, then calls Calendly
+    `POST /scheduled_events/{uuid}/cancellation` with a reason; Calendly emails the invitee and frees the slot. Airtable
+    goes first so the 07d poll that later sees the cancelled event finds it already cancelled and does nothing (no
+    "back to Interested"). A Calendly error never stops the run: the meeting stays Cancelled and Slack asks for a manual
+    cancel with Calendly's answer (tested with a forced 403). The Control Center's **Termin absagen** button does the
+    same through 11_slack_actions (`meeting_cancel`) and sets the lead back to Interested, because the host cancelled,
+    not the lead. Needs the token scope Scheduled events: write.

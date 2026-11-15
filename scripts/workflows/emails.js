@@ -31,7 +31,7 @@ return leads.map((l) => {
   return { json: { ref: l.id, prompt_id: 'email_sequence', max_tokens: 1600,
     validate_opts: { senderName: client.sender_name || 'Anna Berger', contactName: l.contact_name || '', contactSalutation: l.contact_salutation || '', signature: M.validateEmails.buildSignature(client) }, vars: {
     sender_name: client.sender_name || 'Anna Berger', sender_title: client.sender_title || 'Neukundengewinnung', sender_company: client.sender_company || client.name || 'Nexsale GmbH',
-    offer: M.validateEmails.offerText(client, c.industry), industry: c.industry || '', target_role: c.target_role || 'Geschäftsführer',
+    offer: M.validateEmails.offerText(client, c.industry), writing_notes: String(client.writing_notes || '').trim() || '(keine)', industry: c.industry || '', target_role: c.target_role || 'Geschäftsführer',
     company_name: l.company_name, city: l.city || c.city || '', contact_name: l.contact_name || 'unbekannt', contact_role: l.contact_role || '',
     company_summary: l.company_summary || '(keine Beschreibung)', trigger: l.trigger || '(kein Anlass bekannt)', google_rating: l.google_rating || '-', review_count: l.review_count || 0,
   } } };
@@ -150,7 +150,10 @@ return $('Ready campaigns').all().map((i) => {
     avgQuality: avg(approved.map((l) => l.quality_score || 0)), flagged: i.json.leads.filter((l) => l.status === 'Needs review').length,
     rejected: i.json.leads.filter((l) => l.status === 'Rejected').length, samples, listUrl: cfg.interfaceUrl || (cfg.n8nBaseUrl + '/webhook/campaign-status?id=' + c.id),
   });
-  return { json: { ref: c.id, text: msg.text, blocks: msg.blocks, approvedCount: approved.length, samples, name: c.name } };
+  return { json: { ref: c.id, text: msg.text, blocks: msg.blocks, approvedCount: approved.length, samples, name: c.name, client: client.name || '',
+    sender: [client.sender_name, client.sender_company].filter(Boolean).join(', '), avgScore: avg(approved.map((l) => l.score || 0)),
+    avgQuality: avg(approved.map((l) => l.quality_score || 0)), flagged: i.json.leads.filter((l) => l.status === 'Needs review').length,
+    rejected: i.json.leads.filter((l) => l.status === 'Rejected').length } };
 });`);
   w.execWorkflow('Post Campaign ready', '15_slack_notify');
   w.code('Ready updates', ['airtable'], `
@@ -159,14 +162,15 @@ const updates = $('Campaign ready messages').all().map((i) => ({ id: i.json.ref,
   status: 'Ready', ready_at: new Date().toISOString(), slack_ts: (posted[i.json.ref] || {}).ts || null, slack_channel: (posted[i.json.ref] || {}).channel || null } }));
 return M.airtable.updateBatches(updates).map((b) => ({ json: b }));`);
   w.atWrite('Set campaigns Ready', 'Campaigns', 'PATCH');
-  w.code('Campaign ready email', [], `
+  // internal notification in a professional layout (plain text + HTML); the guard sends it to the sender only
+  w.code('Campaign ready email', ['notifications'], `
 const cfg = $('Config').first().json.cfg;
-return $('Campaign ready messages').all().map((i) => ({ json: {
-  ref: 'ready-' + i.json.ref, to: cfg.senderEmail || cfg.testProspectEmail, purpose: 'internal', subject: 'Campaign ready: ' + i.json.name,
-  body: 'Die Kampagne "' + i.json.name + '" ist bereit: ' + i.json.approvedCount + ' Leads mit freigegebener Sequenz.\\n\\n' +
-    i.json.samples.map((s, k) => 'Beispiel ' + (k + 1) + ': ' + s.company + ' (Score ' + s.score + ', Qualität ' + s.quality + ')\\nBetreff: ' + s.subject + '\\n' + s.body).join('\\n\\n') +
-    '\\n\\nStarten Sie die Kampagne mit "Approve and launch" in Slack.' + (cfg.interfaceUrl ? '\\nVollständige Liste: ' + cfg.interfaceUrl : ''),
-} }));`);
+return $('Campaign ready messages').all().map((i) => {
+  const m = M.notifications.campaignReadyEmail({ name: i.json.name, client: i.json.client, sender: i.json.sender, leadCount: i.json.approvedCount, avgScore: i.json.avgScore,
+    avgQuality: i.json.avgQuality, flagged: i.json.flagged, rejected: i.json.rejected, samples: i.json.samples,
+    controlUrl: cfg.n8nBaseUrl + '/webhook/app?p=campaign&id=' + i.json.ref });
+  return { json: { ref: 'ready-' + i.json.ref, to: cfg.senderEmail || cfg.testProspectEmail, purpose: 'internal', fromName: 'Nexsale Lead Engine', subject: m.subject, body: m.body, html: m.html } };
+});`);
   w.execWorkflow('Send Campaign ready email', '13_send_email');
 
   w.connect('Every 5 minutes', 'Config');

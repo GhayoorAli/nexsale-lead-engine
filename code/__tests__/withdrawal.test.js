@@ -32,7 +32,7 @@ describe('withdrawalPlan: a lead says no after showing interest', () => {
   });
   test('a first "no" from a contacted lead is not a withdrawal', () => {
     const p = R.withdrawalPlan({ branch: 'Not interested', lead: lead('Contacted'), meetings: [] });
-    expect(p).toEqual({ withdrew: false, cancelMeetingIds: [], crmSync: false, text: '' });
+    expect(p).toEqual({ withdrew: false, cancelMeetingIds: [], meetings: [], crmSync: false, text: '' });
   });
   test('other branches never withdraw', () => {
     ['Interested', 'Later', 'Out of office', 'Bounce', 'Unmatched', 'Unsure'].forEach((branch) => {
@@ -70,5 +70,37 @@ describe('HubSpot: a withdrawn lead closes its deal', () => {
     expect(d.closed_lost_reason).toBeUndefined();
     expect(d.closedate).toBe('2026-11-20T09:00:00.000Z');
     expect(CRM.closedLostReason(lead('No-show'))).toMatch(/nicht zum Termin/);
+  });
+});
+
+describe('automatic cancellation in Calendly', () => {
+  const C2 = require('../calendly');
+  const R2 = require('../replies');
+  const lead2 = { id: 'recL1', company_name: 'Sinus Clean', status: 'Meeting booked', hubspot_deal_id: '7' };
+  const m1 = { id: 'recM1', lead_record_id: 'recL1', status: 'Booked', start_time: '2026-11-20T09:00:00.000Z', calendly_event_id: 'EVT-123' };
+  const m2 = { id: 'recM2', lead_record_id: 'recL1', status: 'Reminded', start_time: '2026-11-16T09:00:00.000Z', calendly_event_id: 'EVT-456' };
+  test('a meeting that already got its reminder is cancelled too', () => {
+    expect(R2.withdrawalPlan({ branch: 'Not interested', lead: lead2, meetings: [m1, m2] }).cancelMeetingIds).toEqual(['recM1', 'recM2']);
+  });
+  test('the cancellation call: event uuid, reason, safe characters only', () => {
+    expect(C2.cancellationRequest(m1)).toEqual({ meeting_id: 'recM1', uuid: 'EVT-123', path: '/scheduled_events/EVT-123/cancellation', body: { reason: 'Der Interessent hat den Termin abgesagt.' } });
+    expect(C2.cancellationRequest({ id: 'x', calendly_event_id: '../users/me' }).uuid).toBe('usersme');
+    expect(C2.cancellationRequest({ id: 'x' }).path).toBe('/scheduled_events/missing/cancellation');
+    expect(C2.cancellationRequest(m1, 'x'.repeat(400)).body.reason).toHaveLength(300);
+  });
+  test('result: 201 ok; 403/404 or no answer = problem with a short reason', () => {
+    expect(C2.cancellationOk({ statusCode: 201 })).toBe(true);
+    expect(C2.cancellationOk({ statusCode: 403 })).toBe(false);
+    expect(C2.cancellationOk(null)).toBe(false);
+    expect(C2.cancellationProblem({ statusCode: 403, body: { title: 'Permission Denied' } })).toBe('403 Permission Denied');
+    expect(C2.cancellationProblem({})).toBe(' no answer');
+  });
+  test('Slack text: automatic when Calendly confirmed, manual hint (with the reason) when not', () => {
+    const plan = R2.withdrawalPlan({ branch: 'Not interested', lead: lead2, meetings: [m1, m2] });
+    const t = R2.withdrawalText(plan, [{ ok: true }, { ok: false, problem: '403 Permission Denied' }]);
+    expect(t).toMatch(/Meeting on 2026-11-20 09:00 cancelled in Calendly automatically/);
+    expect(t).toMatch(/Meeting on 2026-11-16 09:00 marked cancelled: \*please cancel it in Calendly too\* \(Calendly: 403 Permission Denied\)/);
+    expect(t).toMatch(/HubSpot deal set to Closed lost/);
+    expect(plan.text).toMatch(/please cancel it in Calendly too\*\./); // before the calls ran
   });
 });

@@ -70,6 +70,10 @@ function pendingApproval(replies) {
 function toSort(replies) {
   return (replies || []).filter((r) => r.branch === 'Unsure' && !r.handled_at && !r.suggested_reply);
 }
+/** An upcoming meeting that can still be cancelled (in Calendly too). */
+function cancellable(m, now) {
+  return !!m && (m.status === 'Booked' || m.status === 'Reminded') && new Date(m.start_time).getTime() > new Date(now).getTime();
+}
 function heldOpen(meetings, now) {
   const t = new Date(now).getTime();
   return (meetings || []).filter((m) => (m.status === 'Booked' || m.status === 'Reminded') && new Date(m.start_time).getTime() + 15 * 60000 <= t);
@@ -204,7 +208,7 @@ function pageCampaign(o) {
     <td><small>${esc(l.reject_reason || l.needs_review_reason || (l.trigger ? 'Anlass: ' + l.trigger : ''))}</small></td></tr>`).join('') || '<tr><td colspan="7">Noch keine Leads – die Suche läuft.</td></tr>';
   const status = `<a href="/webhook/campaign-status?id=${esc(c.id)}">Live-Status ↗</a>`;
   return layout(o, c.name, `<div class="card"><div class="row"><div>${badge(c.status)} <b>${esc(client.name || '')}</b> · Absender ${esc(client.sender_name || '–')} · ${esc(c.industry || '')} in ${esc(c.city || '')} · Zielrolle ${esc(c.target_role || '')} · Max. ${esc(c.max_leads || '')} Leads</div><div>${status}</div></div>
-    ${c.launch_failures ? `<div class="flash bad">Start blockiert: ${esc(c.launch_failures)}</div>` : ''}<div class="actions">${campaignButtons(c, 'campaign')}</div></div>
+    ${c.launch_failures ? `<div class="flash bad">Start blockiert: ${esc(c.launch_failures)}</div>` : ''}<div class="actions">${campaignButtons(c, 'campaign')}${['Sourcing', 'Ready'].includes(c.status) && s.leads ? ' ' + postButton('campaign_rewrite', { id: c.id }, 'Alle E-Mails neu schreiben', '', 'Alle noch nicht gesendeten E-Mails dieser Kampagne verwerfen und neu schreiben lassen (z. B. nach geändertem Angebot oder Schreibhinweisen)?') : ''}</div></div>
     <div class="grid">${kpi('Leads', s.leads)}${kpi('Freigegeben', s.approved)}${kpi('Zur Prüfung', s.review)}${kpi('Aussortiert', s.rejected)}${kpi('Gesendet', s.sent)}${kpi('Positive Antworten', s.positive)}${kpi('Termine', s.meetings)}${kpi('Kosten', ((Number(c.google_api_cost_eur) || 0) + (Number(c.ai_cost_eur) || 0)).toFixed(4).replace('.', ',') + ' €')}</div>
     <h2>Leads</h2><div class="tw"><table><tr><th>Firma</th><th>Ansprechpartner</th><th>E-Mail</th><th>Score</th><th>Qualität</th><th>Status</th><th>Grund / Anlass</th></tr>${rows}</table></div>`);
 }
@@ -218,16 +222,28 @@ function pageLead(o) {
   const replies = (d.replies || []).filter((r) => leadOf(r) === l.id).sort((a, b) => String(a.received_at).localeCompare(String(b.received_at)));
   const canRewrite = ['Approved', 'Needs review', 'Enriched'].includes(l.status) && ['Sourcing', 'Ready'].includes(c.status);
   const canExclude = !['Rejected', 'Unsubscribed', 'Bounced', 'Meeting held'].includes(l.status);
-  const acts = [canRewrite ? postButton('lead_rewrite', { id: l.id }, 'E-Mails neu schreiben', '', 'Die 4 E-Mails dieses Leads verwerfen und von der KI neu schreiben lassen?') : '',
+  const acts = [l.status === 'Needs review' && emails.length === 4 ? postButton('lead_approve', { id: l.id }, 'Lead freigeben', 'primary', 'Die 4 E-Mails sind geprüft und dieser Lead soll mit in die Kampagne?') : '',
+    canRewrite ? postButton('lead_rewrite', { id: l.id }, 'E-Mails neu schreiben', '', 'Die 4 E-Mails dieses Leads verwerfen und von der KI neu schreiben lassen?') : '',
     canExclude ? postButton('lead_exclude', { id: l.id }, 'Lead ausschließen', 'danger', 'Diesen Lead ausschließen? Er erhält keine weiteren E-Mails.') : ''].join(' ');
   const info = [['Kampagne', `<a href="${href('campaign', { id: c.id })}">${esc(c.name || '')}</a>`], ['Status', badge(l.status)], ['Ansprechpartner', esc([l.contact_salutation, l.contact_name].filter(Boolean).join(' ') + (l.contact_role ? ' (' + l.contact_role + ')' : ''))],
     ['Quelle Kontakt', esc(l.contact_source || '')], ['E-Mail', esc(l.email || '–')], ['Website', l.website ? `<a href="${esc(l.website)}">${esc(l.website)}</a>` : ''],
     ['Telefon', esc(l.phone || '')], ['Adresse', esc(l.address || '')], ['Score', esc(l.score ?? '')], ['E-Mail-Qualität', esc(l.quality_score ?? '')], ['Anlass', esc(l.trigger || '–')],
     ['Firmenbeschreibung', esc(l.company_summary || '')], ['Grund', esc(l.reject_reason || l.needs_review_reason || '')]]
     .filter(([, v]) => v).map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('');
-  const mails = emails.map((e) => `<div class="card"><div class="row"><b>E-Mail ${esc(e.step)}: ${esc(e.subject_sent || e.subject)}</b>${badge(e.status)}</div>${e.subject_b ? `<small class="muted">A/B-Betreff: ${esc(e.subject_b)}</small>` : ''}<pre class="mail">${esc(e.body)}</pre>${e.sent_at ? `<small class="muted">gesendet ${berlin(e.sent_at)}</small>` : ''}</div>`).join('') || '<div class="card muted">Noch keine E-Mails.</div>';
+  const VE = dep('validateEmails', './validateEmails');
+  const editable = (e) => e.status !== 'Sent' && !['Completed'].includes(c.status) && !['Rejected', 'Unsubscribed', 'Bounced'].includes(l.status);
+  const mails = emails.map((e) => {
+    const head = `<div class="row"><b>E-Mail ${esc(e.step)}: ${esc(e.subject_sent || e.subject)}</b><span>${badge(e.status)}${e.edited_by ? ' <small class="muted">bearbeitet</small>' : ''}</span></div>${e.subject_b ? `<small class="muted">A/B-Betreff: ${esc(e.subject_b)}</small>` : ''}`;
+    if (!editable(e)) return `<div class="card">${head}<pre class="mail">${esc(e.body)}</pre>${e.sent_at ? `<small class="muted">gesendet ${berlin(e.sent_at)}</small>` : ''}</div>`;
+    return `<div class="card">${head}<form method="post" action="/webhook/app-action"><input type="hidden" name="action" value="email_save"><input type="hidden" name="id" value="${esc(e.id)}">
+      <label>Betreff${Number(e.step) === 1 ? ' <small>höchstens 5 Wörter</small>' : ' <small>im Thread als "Re: …" gesendet</small>'}</label><input type="text" name="subject" value="${esc(e.subject)}" required>
+      <label>Nachricht <small>ohne Anrede und Signatur – beides wird automatisch ergänzt; ${Number(e.step) === 1 ? 'unter 90 Wörter' : 'höchstens 50 Wörter'}, Sie-Form, am Ende eine Frage</small></label>
+      <textarea name="text" required>${esc(VE.messageText(e.body))}</textarea><div class="actions"><button type="submit">Speichern</button></div></form>
+      <details><summary>So sieht die E-Mail aus</summary><pre class="mail">${esc(e.body)}</pre></details></div>`;
+  }).join('') || '<div class="card muted">Noch keine E-Mails.</div>';
   const reps = replies.map((r) => `<div class="card"><div class="row"><b>${esc(r.category || '')}</b><small class="muted">${berlin(r.received_at)}</small></div><pre class="mail">${esc(r.body)}</pre>${r.suggested_reply ? `<details><summary>Antwort-Entwurf</summary><pre class="mail">${esc(r.suggested_reply)}</pre></details>` : ''}</div>`).join('');
-  return layout(o, l.company_name, `<div class="actions">${acts}</div><div class="tw"><table>${info}</table></div>
+  const reviewNote = l.status === 'Needs review' ? `<div class="flash bad">Zurückgehalten: ${esc(l.needs_review_reason || '')}. Sie können die E-Mails unten bearbeiten und den Lead dann freigeben – oder neu schreiben lassen.</div>` : '';
+  return layout(o, l.company_name, `${reviewNote}<div class="actions">${acts}</div><div class="tw"><table>${info}</table></div>
     ${l.meeting_brief ? `<h2>Meeting-Briefing</h2><pre class="mail">${esc(l.meeting_brief)}</pre>` : ''}<h2>E-Mails</h2>${mails}${reps ? '<h2>Antworten</h2>' + reps : ''}`);
 }
 
@@ -264,7 +280,8 @@ function pageMeetings(o) {
   const card = (m) => {
     const l = leads[leadOf(m)] || {};
     return `<div class="card"><div class="row"><div><b>${berlin(m.start_time)}</b> · <a href="${href('lead', { id: l.id })}">${esc(l.company_name || '')}</a> ${esc(l.contact_name ? '(' + l.contact_name + ')' : '')}</div>${badge(m.status)}</div>
-      ${open.has(m.id) ? `<div class="actions">${postButton('meeting_held', { id: m.id }, 'Hat stattgefunden', 'primary')} ${postButton('meeting_noshow', { id: m.id }, 'No-show')}</div>` : ''}
+      ${open.has(m.id) ? `<div class="actions">${postButton('meeting_held', { id: m.id }, 'Hat stattgefunden', 'primary')} ${postButton('meeting_noshow', { id: m.id }, 'No-show')}</div>`
+    : cancellable(m, o.now) ? `<div class="actions">${postButton('meeting_cancel', { id: m.id }, 'Termin absagen', '', 'Termin wirklich absagen? Calendly informiert den Interessenten per E-Mail.')}</div>` : ''}
       ${l.meeting_brief ? `<details><summary>Meeting-Briefing</summary><pre class="mail">${esc(l.meeting_brief)}</pre></details>` : ''}</div>`;
   };
   const upcoming = sorted.filter((m) => m.status !== 'Cancelled' && new Date(m.start_time).getTime() > t - 15 * 60000).map(card).join('') || '<div class="card muted">Keine anstehenden Termine.</div>';
@@ -281,6 +298,7 @@ const CLIENT_FIELDS = [
   ['sender_website', 'Website', 'optional, in der Signatur', 'url'],
   ['sender_company_footer', 'Impressum-Zeile (Footer)', 'Firma · Adresse · Geschäftsführer · Register', 'textarea', true],
   ['offer', 'Angebot', 'was dieser Client verkauft – die KI verspricht nur, was hier steht', 'textarea', true],
+  ['writing_notes', 'Schreibhinweise', 'gelten für alle E-Mails dieses Clients, z. B. "immer das Reinigungsprotokoll erwähnen, nie günstig schreiben, kurz halten"', 'textarea'],
   ['qualifying_questions', 'Qualifizierungsfragen', 'werden Interessenten in der Antwort gestellt', 'textarea'],
   ['calendly_link', 'Buchungslink (Calendly)', 'leer = Link aus .env', 'url'],
   ['target_segments', 'Zielgruppen (Notiz)', 'z. B. Hausverwaltungen, Hotels', 'text'],
@@ -442,6 +460,53 @@ function planAction(form, d, ctx) {
     return { ops, redirect: back('lead', { id: l.id }, 'Die KI schreibt die E-Mails neu – in etwa einer Minute hier sichtbar.') };
   }
 
+  if (a === 'email_save' || a === 'lead_approve') {
+    const VE = dep('validateEmails', './validateEmails');
+    const e0 = a === 'email_save' ? (data.emails || []).find((e) => e.id === String(f.id || '')) : null;
+    const l = a === 'email_save' ? (e0 && lead(leadOf(e0))) : lead(String(f.id || ''));
+    if (!l || (a === 'email_save' && !e0)) return fail('E-Mail oder Lead nicht gefunden', 'campaigns');
+    const c = campaign(leadCamp(l)) || {};
+    const client = (data.clients || []).find((k) => k.id === campClient(c)) || (data.clients || []).find((k) => k.is_default) || {};
+    const footer = VE.buildFooter(client);
+    const opts = { senderName: client.sender_name || '', requireFooter: true, footer };
+    if (a === 'email_save') {
+      if (e0.status === 'Sent') return fail('Diese E-Mail ist schon gesendet', 'lead', { id: l.id });
+      const text = String(f.text || '').replace(/\r\n/g, '\n').trim();
+      const subject = String(f.subject || '').trim();
+      if (!text || !subject) return fail('Betreff und Nachricht dürfen nicht leer sein', 'lead', { id: l.id });
+      const body = VE.appendFooter(VE.ensureFrame(text, { contactName: l.contact_name || '', contactSalutation: l.contact_salutation || '', signature: VE.buildSignature(client), paragraphs: true }), footer);
+      const errors = VE.validateEmail({ step: Number(e0.step), subject, body }, opts);
+      if (errors.length) return fail('Nicht gespeichert – bitte anpassen: ' + errors.join('; '), 'lead', { id: l.id });
+      return { ops: [at('PATCH', 'Emails', { records: [{ id: e0.id, fields: { subject, body, edited_by: user, edited_at: (ctx && ctx.now) || new Date().toISOString() } }], typecast: true })],
+        redirect: back('lead', { id: l.id }, 'E-Mail ' + e0.step + ' gespeichert (Regeln geprüft).') };
+    }
+    if (l.status !== 'Needs review') return fail('Nur zurückgehaltene Leads können freigegeben werden', 'lead', { id: l.id });
+    const es = (data.emails || []).filter((e) => leadOf(e) === l.id && e.status !== 'Sent').sort((x, y) => Number(x.step) - Number(y.step));
+    if (es.length !== 4) return fail('Für die Freigabe braucht der Lead 4 E-Mails', 'lead', { id: l.id });
+    const v = VE.validateSequence(es.map((e) => ({ step: Number(e.step), subject: e.subject, body: e.body })), opts);
+    if (!v.ok) return fail('Noch nicht freigegeben – bitte zuerst anpassen: ' + v.errors.join('; '), 'lead', { id: l.id });
+    return { ops: [at('PATCH', 'Emails', { records: es.map((e) => ({ id: e.id, fields: { status: 'Approved', approved: true, approved_by: user } })), typecast: true }),
+      at('PATCH', 'Leads', { records: [{ id: l.id, fields: { status: 'Approved', needs_review_reason: null } }], typecast: true })],
+    redirect: back('lead', { id: l.id }, 'Lead freigegeben – er ist beim Start der Kampagne dabei.') };
+  }
+
+  if (a === 'campaign_rewrite') {
+    const c = campaign(String(f.id || ''));
+    if (!c) return fail('Kampagne nicht gefunden', 'campaigns');
+    if (!['Sourcing', 'Ready'].includes(c.status)) return fail('Neu schreiben geht nur vor dem Start der Kampagne', 'campaign', { id: c.id });
+    const ls = (data.leads || []).filter((l) => leadCamp(l) === c.id && ['Approved', 'Needs review', 'Enriched'].includes(l.status));
+    if (!ls.length) return fail('Keine Leads zum Neuschreiben', 'campaign', { id: c.id });
+    const ids = new Set(ls.map((l) => l.id));
+    const old = (data.emails || []).filter((e) => ids.has(leadOf(e)) && e.status !== 'Sent').map((e) => e.id);
+    const ops = [];
+    for (let i = 0; i < old.length; i += 10) ops.push(at('DELETE', 'Emails', null, old.slice(i, i + 10).map((x) => 'records[]=' + encodeURIComponent(x)).join('&')));
+    for (let i = 0; i < ls.length; i += 10) {
+      ops.push(at('PATCH', 'Leads', { records: ls.slice(i, i + 10).map((l) => ({ id: l.id, fields: { status: 'Enriched', quality_score: null, needs_review_reason: null, claimed_at: null } })), typecast: true }));
+    }
+    ops.push({ kind: 'kick', path: 'ai-emails-run', body: {} });
+    return { ops, redirect: back('campaign', { id: c.id }, ls.length + ' Lead(s) werden neu geschrieben – bis zu 20 sofort, weitere in den nächsten Minuten.') };
+  }
+
   if (a === 'reply_approve' || a === 'reply_reject' || a === 'reply_sort') {
     const r = (data.replies || []).find((x) => x.id === String(f.id || ''));
     if (!r) return fail('Antwort nicht gefunden', 'replies');
@@ -466,6 +531,13 @@ function planAction(form, d, ctx) {
     return { ops: [CONTROL(a, m.id, user)], redirect: back('meetings', {}, a === 'meeting_held' ? 'Als stattgefunden markiert.' : 'Als No-show markiert – Rückruf-Aufgabe angelegt.') };
   }
 
+  if (a === 'meeting_cancel') {
+    const m = (data.meetings || []).find((x) => x.id === String(f.id || ''));
+    if (!m) return fail('Termin nicht gefunden', 'meetings');
+    if (!cancellable(m, (ctx && ctx.now) || new Date().toISOString())) return fail('Dieser Termin kann nicht mehr abgesagt werden (' + (m.status || '–') + ').', 'meetings');
+    return { ops: [CONTROL(a, m.id, user)], redirect: back('meetings', {}, 'Termin abgesagt – auch in Calendly, Slack bestätigt es.') };
+  }
+
   if (a === 'task_done') {
     const t = (data.tasks || []).find((x) => x.id === String(f.id || ''));
     if (!t) return fail('Aufgabe nicht gefunden', 'system');
@@ -485,5 +557,5 @@ function afterAction(plan, results) {
   return { ops: [], redirect: plan.redirect };
 }
 
-const controlCenterApi = { checkAuth, renderPage, planAction, afterAction, pendingApproval, toSort, heldOpen, campaignStats, esc, CLIENT_FIELDS, PAGES };
+const controlCenterApi = { checkAuth, renderPage, planAction, afterAction, pendingApproval, toSort, heldOpen, cancellable, campaignStats, esc, CLIENT_FIELDS, PAGES };
 if (typeof module !== 'undefined' && module.exports) module.exports = controlCenterApi;

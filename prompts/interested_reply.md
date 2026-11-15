@@ -12,6 +12,7 @@ Antworte ausschließlich mit JSON: {"body": "…"}
 
 ## User
 Angebot des Absenders: <<offer>>
+Schreibhinweise des Absenders (befolgen): <<writing_notes>>
 Ansprechpartner: <<contact_name>>, Firma: <<company_name>>
 Seine Nachricht:
 <<reply_body>>

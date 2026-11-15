@@ -174,16 +174,33 @@ function withdrawalPlan(opts) {
   const o = opts || {};
   const lead = o.lead || {};
   const name = lead.company_name || o.fromEmail || 'Lead';
-  const booked = (o.meetings || []).filter((m) => m && m.status === 'Booked' && (!lead.id || m.lead_record_id === lead.id));
+  // Reminded too: a meeting that already got its 24 h reminder is still an active booking
+  const booked = (o.meetings || []).filter((m) => m && (m.status === 'Booked' || m.status === 'Reminded') && (!lead.id || m.lead_record_id === lead.id));
   const wasInterested = ['Interested', 'Meeting booked', 'Meeting held'].includes(lead.status);
   const hasDeal = !!lead.hubspot_deal_id;
   const closing = o.branch === 'Not interested' || o.branch === 'Unsubscribe';
   const withdrew = closing && (wasInterested || hasDeal || booked.length > 0);
-  if (!withdrew) return { withdrew: false, cancelMeetingIds: [], crmSync: false, text: '' };
-  const parts = [':leftwards_arrow_with_hook: *' + name + '* withdrew after showing interest (' + (o.branch === 'Unsubscribe' ? 'STOP, added to the Blocklist' : 'not interested') + ').'];
-  if (hasDeal) parts.push('HubSpot deal set to Closed lost.');
-  booked.forEach((m) => parts.push('Meeting on ' + String(m.start_time || '').slice(0, 16).replace('T', ' ') + ' marked cancelled: *please cancel it in Calendly too*.'));
-  return { withdrew: true, cancelMeetingIds: booked.map((m) => m.id), crmSync: hasDeal, text: parts.join(' ') };
+  if (!withdrew) return { withdrew: false, cancelMeetingIds: [], meetings: [], crmSync: false, text: '' };
+  const head = ':leftwards_arrow_with_hook: *' + name + '* withdrew after showing interest (' + (o.branch === 'Unsubscribe' ? 'STOP, added to the Blocklist' : 'not interested') + ').';
+  const meetings = booked.map((m) => ({ id: m.id, calendly_event_id: m.calendly_event_id || '', when: String(m.start_time || '').slice(0, 16).replace('T', ' ') }));
+  const plan = { withdrew: true, cancelMeetingIds: booked.map((m) => m.id), meetings, crmSync: hasDeal, head, hasDeal };
+  plan.text = withdrawalText(plan, null);
+  return plan;
+}
+
+/**
+ * Slack text after the Calendly cancellations ran. results: [{ok, problem}] in the order of plan.meetings
+ * (null = not tried yet → the manual hint).
+ */
+function withdrawalText(plan, results) {
+  const parts = [plan.head];
+  if (plan.hasDeal) parts.push('HubSpot deal set to Closed lost.');
+  (plan.meetings || []).forEach((m, i) => {
+    const r = results && results[i];
+    if (r && r.ok) parts.push('Meeting on ' + m.when + ' cancelled in Calendly automatically (the invitee got Calendly\'s cancellation email).');
+    else parts.push('Meeting on ' + m.when + ' marked cancelled: *please cancel it in Calendly too*' + (r && r.problem ? ' (Calendly: ' + r.problem + ')' : '') + '.');
+  });
+  return parts.join(' ');
 }
 
 /**
@@ -209,5 +226,5 @@ function referralPlan(o) {
   return { action: 'contact', name, email, reason: '' };
 }
 
-const repliesApi = { isBulk, normaliseIncoming, stripQuoted, detectBounce, bouncedAddress, ruleClassify, findReturnDate, matchReplyToLead, routeReply, withdrawalPlan, referralPlan, addr };
+const repliesApi = { isBulk, normaliseIncoming, stripQuoted, detectBounce, bouncedAddress, ruleClassify, findReturnDate, matchReplyToLead, routeReply, withdrawalPlan, withdrawalText, referralPlan, addr };
 if (typeof module !== 'undefined' && module.exports) module.exports = repliesApi;

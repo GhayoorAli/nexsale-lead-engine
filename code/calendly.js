@@ -83,5 +83,27 @@ function pollToPayloads(events, inviteesByEvent, now, windowMinutes) {
   return out;
 }
 
-const calendlyApi = { parseCalendly, meetingAction, bookingLink, verifyCalendlySignature, pollToPayloads };
+/**
+ * Cancel a booked meeting in Calendly (POST /scheduled_events/{uuid}/cancellation; token needs scheduled_events:write).
+ * Calendly then sends its own cancellation email to the invitee and removes the event from the host's calendar.
+ */
+function cancellationRequest(meeting, reason) {
+  const uuid = String((meeting && meeting.calendly_event_id) || '').replace(/[^A-Za-z0-9-]/g, '');
+  return { meeting_id: meeting && meeting.id, uuid, path: '/scheduled_events/' + (uuid || 'missing') + '/cancellation',
+    body: { reason: String(reason || 'Der Interessent hat den Termin abgesagt.').slice(0, 300) } };
+}
+
+/** Calendly answers 201 on success; 403 if already cancelled / in the past or the token lacks permission; 404 unknown. */
+function cancellationOk(response) {
+  const code = Number(response && (response.statusCode || response.status));
+  return code === 201 || code === 200;
+}
+
+function cancellationProblem(response) {
+  const r = response || {};
+  const b = r.body || {};
+  return (Number(r.statusCode) || '') + ' ' + String(b.title || b.message || r.error || 'no answer').slice(0, 120);
+}
+
+const calendlyApi = { cancellationRequest, cancellationOk, cancellationProblem, parseCalendly, meetingAction, bookingLink, verifyCalendlySignature, pollToPayloads };
 if (typeof module !== 'undefined' && module.exports) module.exports = calendlyApi;

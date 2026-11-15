@@ -92,3 +92,15 @@ describe('sending selection', () => {
   });
   test('linkId', () => expect(S.linkId(['a'])).toBe('a'));
 });
+
+test('launch check: a sequence approved by a person counts as passed; below 80 without approval does not', () => {
+  const L2 = require('../launchChecks');
+  const G2 = require('../guard');
+  const leads = [1, 2, 3, 4, 5].map((i) => ({ id: 'L' + i, status: 'Approved', email: `p${i}@f${i}.example`, domain: `f${i}.example`, campaign: ['C1'] }));
+  const emails = leads.flatMap((l) => [1, 2, 3, 4].map((s) => ({ id: l.id + s, lead: [l.id], step: s, approved: true, quality_score: 90, status: 'Approved' })));
+  emails[0].quality_score = 65;
+  const base = { campaign: { name: 'X' }, leads, emails, blocklist: [], otherLiveContactedDomains: [], gmailOk: true, testMode: true, isBlocked: G2.isBlocked };
+  expect(L2.runPrelaunchChecks(base).ok).toBe(false);
+  emails[0].approved_by = 'Control Center (admin)';
+  expect(L2.runPrelaunchChecks(base).ok).toBe(true);
+});
