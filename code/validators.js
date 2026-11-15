@@ -179,7 +179,7 @@ function prepareByPrompt(promptId, data, opts, ve) {
     return Object.assign({}, data, { body: ve.ensureFrame(data.body.replace(/\\n/g, '\n'), opts) });
   }
   if (promptId !== 'email_sequence' || !ve || !data || !Array.isArray(data.emails)) return data;
-  return Object.assign({}, data, { emails: data.emails.map((e) => Object.assign({}, e, { body: ve.ensureFrame(String(e.body || '').replace(/\\n/g, '\n'), opts || {}) })) });
+  return Object.assign({}, data, { emails: data.emails.map((e) => Object.assign({}, e, { body: ve.ensureFrame(String(e.body || '').replace(/\\n/g, '\n'), Object.assign({ paragraphs: true }, opts || {})) })) });
 }
 
 function validateByPrompt(promptId, data, opts, ve) {

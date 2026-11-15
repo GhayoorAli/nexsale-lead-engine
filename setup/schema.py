@@ -49,7 +49,7 @@ REPLY_CATS = ["Interested", "Question", "Referral", "Later", "Not interested", "
 
 TABLES = {
     "Clients": [t("name"), t("industry"), url("calendly_link"), t("sender_name"), t("sender_title"), t("sender_company"), t("sender_phone"), url("sender_website"),
-                long("sender_company_footer"), long("offer"), check("is_default"), long("qualifying_questions"), t("target_segments"),
+                long("sender_company_footer"), long("offer"), long("writing_notes"), check("is_default"), long("qualifying_questions"), t("target_segments"),
                 num("target_positive_replies"), num("target_meetings"), t("hubspot_owner_id"), t("slack_channel"),
                 num("positive_replies_month"), num("meetings_month"), num("positive_pct", 1), num("meetings_pct", 1), dt("metrics_updated_at")],
     "Campaigns": [t("name"), t("client_record_id"), t("industry"), t("city"), t("company_size"), t("target_role"), num("max_leads"),
@@ -69,7 +69,7 @@ TABLES = {
               t("hubspot_contact_id"), t("hubspot_company_id"), t("hubspot_deal_id"), t("crm_synced_status")],
     "Emails": [t("key"), t("lead_record_id"), t("campaign_record_id"), num("step"), t("subject"), t("subject_b"), long("body"),
                check("approved"), num("quality_score"), select("status", ["Draft", "Approved", "Sent", "Skipped"]), dt("sent_at"),
-               t("gmail_message_id"), t("thread_id"), t("subject_sent"), t("sent_to"), t("original_to")],
+               t("gmail_message_id"), t("thread_id"), t("subject_sent"), t("sent_to"), t("original_to"), t("edited_by"), dt("edited_at"), t("approved_by")],
     "Replies": [t("key"), t("lead_record_id"), dt("received_at"), t("from_email"), t("subject"), long("body"),
                 select("category", REPLY_CATS), num("ai_confidence", 2), t("classified_by"), long("summary"), long("suggested_reply"),
                 check("reply_approved"), t("handled_by"), dt("handled_at"), t("branch"), t("thread_id"), t("gmail_message_id"), t("slack_ts"), t("slack_channel")],

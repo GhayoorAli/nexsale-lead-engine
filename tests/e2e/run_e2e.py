@@ -4,7 +4,7 @@
   (auto)   sourcing → enrichment → scoring → AI sequences → quality check → "Campaign ready"
   click 2  open the "Campaign ready" Slack message
   click 3  "Approve and launch"
-  (auto)   [TEST] emails → "interested" reply from the test inbox → automatic answer with Calendly link
+  (auto)   test emails → "interested" reply from the test inbox → automatic answer with Calendly link
            → Calendly booking → Meeting booked → HubSpot deal → dashboard numbers → weekly report
 
 Counts the clicks (must be 3) and the time from form to "Campaign ready". Runs the flow N times (default 2)
@@ -48,8 +48,8 @@ def e2e_mock(stack, mock):
     ri.click_launch(stack, mock)
     camp = ri.campaign(mock)
     c.ok(camp["status"] == "Live", "campaign Live", camp["status"])
-    gm = [g for g in mock.state()["gmail"] if "Campaign ready" not in g["subject"]]
-    c.ok(gm and all(g["subject"].startswith("[TEST]") and g["to"] == rm.PROSPECT for g in gm), "[TEST] emails in the test inbox", len(gm))
+    gm = [g for g in mock.state()["gmail"] if "Kampagne bereit" not in g["subject"]]
+    c.ok(gm and all(g["test_marker"] == "true" and g["to"] == rm.PROSPECT for g in gm), "test emails in the test inbox", len(gm))
     lead = next(l for l in mock.table("Leads") if l["status"] == "Contacted")
     thread = ri.interested_reply(stack, mock, lead, REPLY)
     ans = [g for g in mock.state()["gmail"] if g["threadId"] == thread and "calendly.com" in g["body"]]
@@ -111,7 +111,7 @@ def e2e_live():
     while campaign().get("fields", {}).get("status") != "Live" and time.time() - t1 < 300:
         time.sleep(10)
     c.ok(campaign().get("fields", {}).get("status") == "Live", "campaign Live")
-    input(f"From the test inbox, reply to the first [TEST] email with: '{REPLY}'. Press Enter ")
+    input(f"From the test inbox, reply to the first test email with: '{REPLY}'. Press Enter ")
     input("Check the automatic answer with the Calendly link arrived, book the slot, press Enter ")
     c.ok(input("Did the answer arrive and is the HubSpot deal there? [y/n] ").strip().lower() == "y", "answer + booking + deal confirmed by the tester")
     c.ok(clicks == 3, "exactly 3 clicks", clicks)

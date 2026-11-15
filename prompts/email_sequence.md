@@ -44,6 +44,7 @@ Antworte ausschließlich mit JSON in genau diesem Format:
 ## User
 Absender: <<sender_name>>, <<sender_title>>, <<sender_company>>
 Angebot des Absenders: <<offer>>
+Schreibhinweise des Absenders (immer befolgen, solange sie den Pflichtregeln oben nicht widersprechen): <<writing_notes>>
 Empfänger-Branche (Suchbegriff der Kampagne): <<industry>>
 Ansprechpartner-Rolle beim Empfänger: <<contact_role>>
 

@@ -102,7 +102,7 @@ def new_state():
     return {
         "airtable": {}, "autonum": {}, "meta_tables": [],
         "requests": [], "slack": [], "slack_webhook": [], "slack_responses": [], "gmail": [], "hubspot": {"contacts": {}, "companies": {}, "deals": {}, "notes": {}, "associations": []},
-        "fail": {}, "ai_mode": {}, "ai_calls": [], "google_calls": [], "airtable_writes": [], "airtable_rejected": [], "calendly": [],
+        "fail": {}, "ai_mode": {}, "ai_calls": [], "google_calls": [], "airtable_writes": [], "airtable_rejected": [], "calendly": [], "calendly_cancellations": [],
     }
 
 
@@ -728,14 +728,29 @@ class Handler(BaseHTTPRequestHandler):
 
             def dec_word(v):
                 return re.sub(r"=\?UTF-8\?B\?([^?]+)\?=", lambda m: base64.b64decode(m.group(1)).decode("utf-8"), v or "")
-            try:
-                text = base64.b64decode(enc_body.replace("\r\n", "")).decode("utf-8")
-            except Exception:  # noqa: BLE001
-                text = enc_body
+            def b64(x):
+                try:
+                    return base64.b64decode(x.replace("\r\n", "")).decode("utf-8")
+                except Exception:  # noqa: BLE001
+                    return x
+            html = ""
+            bm = re.search(r'boundary="([^"]+)"', headers.get("content-type", ""))
+            if bm:  # multipart/alternative: plain text + HTML
+                text = ""
+                for part in decoded.split("--" + bm.group(1)):
+                    ph, _, pb = part.lstrip("\r\n").partition("\r\n\r\n")
+                    pb = pb.rstrip("-").strip()
+                    if "text/plain" in ph:
+                        text = b64(pb)
+                    elif "text/html" in ph:
+                        html = b64(pb)
+            else:
+                text = b64(enc_body)
             mid = "msg" + uuid.uuid4().hex[:12]
             thread = body.get("threadId") or ("thr" + uuid.uuid4().hex[:12])
             m = {"id": mid, "threadId": thread, "to": headers.get("to", ""), "from": dec_word(headers.get("from", "")),
-                 "subject": dec_word(headers.get("subject", "")), "body": text, "in_reply_to": headers.get("in-reply-to"), "sent_at": now_iso()}
+                 "subject": dec_word(headers.get("subject", "")), "body": text, "html": html, "test_marker": headers.get("x-nexsale-test", ""),
+                 "in_reply_to": headers.get("in-reply-to"), "sent_at": now_iso()}
             STATE["gmail"].append(m)
             return self._json(200, {"id": mid, "threadId": thread, "labelIds": ["SENT"]})
         return self._json(404, {"error": "gmail path"})
@@ -776,6 +791,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"resource": {"uri": "https://api.calendly.com/users/MOCKUSER", "current_organization": "https://api.calendly.com/organizations/MOCKORG"}})
         if path == "/calendly/scheduled_events":
             return self._json(200, {"collection": [e["event"] for e in STATE["calendly"]], "pagination": {}})
+        m = re.match(r"^/calendly/scheduled_events/([^/]+)/cancellation$", path)
+        if m and method == "POST":
+            # Real API: 201 with the cancellation; 403 if the event is already cancelled.
+            uuid = m.group(1)
+            e = next((x for x in STATE["calendly"] if x["event"]["uri"].rsplit("/", 1)[-1] == uuid), None)
+            if e and e["event"].get("status") == "canceled":
+                return self._json(403, {"title": "Permission Denied", "message": "Event is already canceled"})
+            if e:
+                e["event"]["status"] = "canceled"
+            STATE["calendly_cancellations"].append({"uuid": uuid, "reason": (body or {}).get("reason"), "auth": self.headers.get("Authorization", "")[:7]})
+            return self._json(201, {"resource": {"canceled_by": "Nexsale Lead Engine", "reason": (body or {}).get("reason"), "canceler_type": "host"}})
         m = re.match(r"^/calendly/scheduled_events/([^/]+)/invitees$", path)
         if m:
             e = next((x for x in STATE["calendly"] if x["event"]["uri"].rsplit("/", 1)[-1] == m.group(1)), None)

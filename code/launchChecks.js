@@ -21,7 +21,8 @@ function runPrelaunchChecks(ctx) {
   });
   const badQuality = approved.filter((l) => {
     const es = emailsByLead[l.id] || [];
-    return es.length !== 4 || es.some((e) => !e.approved || Number(e.quality_score) < 80);
+    // a sequence approved by a person in the Control Center (after editing) counts as passed (approved_by set)
+    return es.length !== 4 || es.some((e) => !e.approved || (Number(e.quality_score) < 80 && !e.approved_by));
   });
   if (badQuality.length) failures.push({ check: 'Every sequence passed the AI quality check', count: badQuality.length, detail: badQuality.map((l) => l.company_name).join(', ') });
   const blocked = approved.filter((l) => ctx.isBlocked(l.email, ctx.blocklist) || ctx.isBlocked('x@' + (l.domain || domainOf(l.email)), ctx.blocklist));

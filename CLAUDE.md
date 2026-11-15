@@ -38,7 +38,7 @@ No per-email ticking. A person is asked only when the AI is unsure about a reply
 
 - This is a demo, not a real launch. Test mode stays on for the whole build.
 - Lead count = the "Max leads" number in the form, in test mode too (my decision, 2026-11-15). Google is paged only as far as that number needs (+20 % buffer, 20 per request: 10 → 1 request, 30 → 2). `TEST_LEAD_LIMIT=10` is only the default when the field is empty.
-- `DEMO_MODE=true` must send every email from every module to `TEST_PROSPECT_EMAIL`, with [TEST] at the start of the subject.
+- `DEMO_MODE=true` must send every prospect-facing email from every module to `TEST_PROSPECT_EMAIL`; internal notifications (Campaign ready, weekly report) go only to `SENDER_EMAIL`. Test emails carry the header `X-Nexsale-Test: true` instead of a visible [TEST] in the subject (my decision, 2026-11-15).
 - Put a guard node right before every email-sending node. It stops the run if any recipient is not in `TEST_RECIPIENT_ALLOWLIST`.
   Write a test that proves a real company address is blocked.
 - Never send email to real companies. Never scrape pages behind a login.

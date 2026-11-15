@@ -64,7 +64,7 @@ const bars = m.guarantees.map((g) => g.name + ': positive Antworten ' + M.report
 const summary = ai && ai.ok ? ai.data.summary : '(KI-Zusammenfassung nicht verfügbar)';
 const text = ':bar_chart: *Wochenbericht*\\n' + figures + '\\n' + summary + '\\n' + bars;
 const cfg = $('Config').first().json.cfg;
-return [{ json: { slack: { ref: 'weekly', text }, email: { ref: 'weekly-' + m.generated_at.slice(0, 10), to: cfg.senderEmail || cfg.testProspectEmail, subject: 'Wochenbericht Outbound', body: text.replace(/[*:]bar_chart[*:]?/g, '').replace(/\\*/g, ''), purpose: 'internal' } } }];`);
+return [{ json: { slack: { ref: 'weekly', text }, email: { ref: 'weekly-' + m.generated_at.slice(0, 10), to: cfg.senderEmail || cfg.testProspectEmail, subject: 'Wochenbericht Outbound', body: text.replace(/[*:]bar_chart[*:]?/g, '').replace(/\\*/g, ''), purpose: 'report' } } }];`);
   w.code('Slack report', [], `return [{ json: $('Report').first().json.slack }];`);
   w.execWorkflow('Post report', '15_slack_notify');
   w.code('Email report', [], `return [{ json: $('Report').first().json.email }];`);

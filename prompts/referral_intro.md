@@ -14,6 +14,7 @@ Betreff: höchstens 5 Wörter, sachlich, ohne "Re:".
 ## User
 Absender: <<sender_name>>, <<sender_title>>, <<sender_company>>
 Angebot des Absenders: <<offer>>
+Schreibhinweise des Absenders (befolgen): <<writing_notes>>
 Verwiesen von: <<referrer_name>> (<<company_name>>)
 Empfänger: <<referral_name>>
 Firmenbeschreibung: <<company_summary>>

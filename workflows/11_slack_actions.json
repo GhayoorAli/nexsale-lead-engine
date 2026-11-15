@@ -270,6 +270,30 @@
               },
               "renameOutput": true,
               "outputKey": "meeting_noshow"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "d9e0deb9-14b9-45e8-8039-ceb8cf67de2c",
+                    "leftValue": "={{ $('Verify + parse').first().json.route }}",
+                    "rightValue": "meeting_cancel",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "meeting_cancel"
             }
           ]
         },
@@ -958,6 +982,259 @@
       }
     },
     {
+      "id": "b2447e02-05a3-4c79-83eb-ae7a7575eeda",
+      "name": "Load meeting (cancel)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        720
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Meetings/{{ $('Verify + parse').first().json.recordId }}",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: get Meetings"
+    },
+    {
+      "id": "e4fd641f-a272-4ad1-8203-242a7d263410",
+      "name": "Load lead (cancel)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        720
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads/{{ $('Load meeting (cancel)').first().json.fields.lead_record_id }}",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: get Leads"
+    },
+    {
+      "id": "ce7016ed-a246-442b-8ce4-4ec150cc2681",
+      "name": "Cancel plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        720
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.calendly = (function () {\n  const module = { exports: {} };\n/**\n * calendly.js – Module 7b: parse Calendly webhook payloads (invitee.created / invitee.canceled).\n * Idempotent: the same event URI twice produces one meeting.\n */\nfunction parseCalendly(body) {\n  const b = (body && (body.body || body)) || {};\n  const p = b.payload || {};\n  const event = b.event || '';\n  const scheduled = p.scheduled_event || {};\n  return {\n    event,\n    email: String(p.email || '').toLowerCase(),\n    name: p.name || '',\n    invitee_uri: p.uri || '',\n    event_uri: scheduled.uri || p.event || '',\n    calendly_event_id: String(scheduled.uri || p.event || p.uri || '').split('/').filter(Boolean).pop() || '',\n    start_time: scheduled.start_time || p.start_time || null,\n    end_time: scheduled.end_time || null,\n    cancel_reason: (p.cancellation && p.cancellation.reason) || '',\n    utm_content: (p.tracking && p.tracking.utm_content) || '',\n    // answers to the booking form's questions (e.g. object size, contract end) go into the meeting brief\n    questions: (Array.isArray(p.questions_and_answers) ? p.questions_and_answers : [])\n      .filter((q) => q && q.question && q.answer).map((q) => ({ question: String(q.question), answer: String(q.answer) })),\n    valid: (event === 'invitee.created' || event === 'invitee.canceled') && !!p.email,\n  };\n}\n\n/** decide what to do given existing Meetings with the same calendly_event_id */\nfunction meetingAction(parsed, existingMeetings) {\n  const existing = (existingMeetings || []).find((m) => m.calendly_event_id === parsed.calendly_event_id);\n  if (parsed.event === 'invitee.created') return existing ? { action: 'skip', reason: 'duplicate webhook', meeting: existing } : { action: 'create' };\n  if (parsed.event === 'invitee.canceled') return existing ? (existing.status === 'Cancelled' ? { action: 'skip', reason: 'already cancelled', meeting: existing } : { action: 'cancel', meeting: existing }) : { action: 'skip', reason: 'unknown meeting' };\n  return { action: 'skip', reason: 'unsupported event ' + parsed.event };\n}\n\n/** Booking link that tells the webhook which lead booked (Calendly passes utm_content back). */\nfunction bookingLink(link, leadRecordId) {\n  if (!link) return '';\n  return link + (link.includes('?') ? '&' : '?') + 'utm_source=nexsale&utm_content=' + encodeURIComponent(leadRecordId || '');\n}\n\n/** Calendly-Webhook-Signature: \"t=<ts>,v1=<hmac_sha256(key, t + '.' + body)>\" */\nfunction verifyCalendlySignature(opts) {\n  const { signingKey, header, rawBody, crypto } = opts || {};\n  const now = opts && opts.now !== undefined ? opts.now : Math.floor(Date.now() / 1000);\n  if (!signingKey) return { ok: true, skipped: true };\n  const parts = Object.fromEntries(String(header || '').split(',').map((kv) => kv.trim().split('=')));\n  if (!parts.t || !parts.v1) return { ok: false, reason: 'missing signature' };\n  if (Math.abs(now - Number(parts.t)) > 180) return { ok: false, reason: 'signature too old' };\n  const expected = crypto.createHmac('sha256', signingKey).update(parts.t + '.' + (rawBody || '')).digest('hex');\n  const a = Buffer.from(expected);\n  const b = Buffer.from(String(parts.v1));\n  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return { ok: false, reason: 'signature mismatch' };\n  return { ok: true };\n}\n\n/**\n * Free Calendly plan (no webhooks): turn polled API data into the same payloads a webhook would send,\n * so 07b_calendly handles both the same way. Only invitees created/changed within `windowMinutes` are\n * forwarded; 07b's duplicate check makes overlapping polls harmless.\n * events: GET /scheduled_events collection; inviteesByEvent: { <event uri>: GET /invitees collection }\n */\nfunction pollToPayloads(events, inviteesByEvent, now, windowMinutes) {\n  const t = new Date(now || Date.now()).getTime();\n  const since = t - (windowMinutes || 30) * 60000;\n  const out = [];\n  (events || []).forEach((ev) => {\n    ((inviteesByEvent || {})[ev.uri] || []).forEach((inv) => {\n      const canceled = inv.status === 'canceled' || ev.status === 'canceled';\n      const changedAt = new Date(canceled ? inv.updated_at || inv.created_at : inv.created_at).getTime();\n      if (!(changedAt >= since)) return;\n      out.push({\n        event: canceled ? 'invitee.canceled' : 'invitee.created',\n        source: 'calendly-poll',\n        payload: {\n          email: inv.email, name: inv.name, uri: inv.uri, status: inv.status, tracking: inv.tracking || {}, questions_and_answers: inv.questions_and_answers || [],\n          cancellation: inv.cancellation || undefined,\n          scheduled_event: { uri: ev.uri, name: ev.name, start_time: ev.start_time, end_time: ev.end_time },\n        },\n      });\n    });\n  });\n  return out;\n}\n\n/**\n * Cancel a booked meeting in Calendly (POST /scheduled_events/{uuid}/cancellation; token needs scheduled_events:write).\n * Calendly then sends its own cancellation email to the invitee and removes the event from the host's calendar.\n */\nfunction cancellationRequest(meeting, reason) {\n  const uuid = String((meeting && meeting.calendly_event_id) || '').replace(/[^A-Za-z0-9-]/g, '');\n  return { meeting_id: meeting && meeting.id, uuid, path: '/scheduled_events/' + (uuid || 'missing') + '/cancellation',\n    body: { reason: String(reason || 'Der Interessent hat den Termin abgesagt.').slice(0, 300) } };\n}\n\n/** Calendly answers 201 on success; 403 if already cancelled / in the past or the token lacks permission; 404 unknown. */\nfunction cancellationOk(response) {\n  const code = Number(response && (response.statusCode || response.status));\n  return code === 201 || code === 200;\n}\n\nfunction cancellationProblem(response) {\n  const r = response || {};\n  const b = r.body || {};\n  return (Number(r.statusCode) || '') + ' ' + String(b.title || b.message || r.error || 'no answer').slice(0, 120);\n}\n\nconst calendlyApi = { cancellationRequest, cancellationOk, cancellationProblem, parseCalendly, meetingAction, bookingLink, verifyCalendlySignature, pollToPayloads };\nif (typeof module !== 'undefined' && module.exports) module.exports = calendlyApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst m = $('Load meeting (cancel)').first().json;\nif (!['Booked', 'Reminded'].includes(m.fields.status)) throw new Error('Meeting ' + m.id + ' is ' + m.fields.status + ' – only booked meetings can be cancelled');\nconst l = $('Load lead (cancel)').first().json;\nconst req = M.calendly.cancellationRequest({ id: m.id, calendly_event_id: m.fields.calendly_event_id }, 'Der Termin wurde von Nexsale abgesagt. Wir melden uns für einen neuen Termin.');\nreturn [{ json: Object.assign(req, { company: l.fields.company_name || '', when: String(m.fields.start_time || '').slice(0, 16).replace('T', ' '),\n  meeting: { records: [{ id: m.id, fields: { status: 'Cancelled' } }], typecast: true },\n  lead: { records: [{ id: l.id, fields: { status: 'Interested' } }], typecast: true } }) }];\n"
+      }
+    },
+    {
+      "id": "e6a4e5c3-00c9-4111-8b36-c9cb6c7fb329",
+      "name": "Meeting → Cancelled",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        720
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Meetings",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Cancel plan').first().json.meeting) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Meetings (batches of 10)"
+    },
+    {
+      "id": "826e5e8f-8bb8-4536-80af-3354168b4e66",
+      "name": "Cancel in Calendly",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        720
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.calendlyApiUrl }}{{ $('Cancel plan').first().json.path }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.CALENDLY_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Cancel plan').first().json.body) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Calendly API: POST /scheduled_events/{uuid}/cancellation (201 = cancelled)"
+    },
+    {
+      "id": "a5f55962-4811-44e3-8f4f-2fa17eb78d96",
+      "name": "Calendly result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        720
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.calendly = (function () {\n  const module = { exports: {} };\n/**\n * calendly.js – Module 7b: parse Calendly webhook payloads (invitee.created / invitee.canceled).\n * Idempotent: the same event URI twice produces one meeting.\n */\nfunction parseCalendly(body) {\n  const b = (body && (body.body || body)) || {};\n  const p = b.payload || {};\n  const event = b.event || '';\n  const scheduled = p.scheduled_event || {};\n  return {\n    event,\n    email: String(p.email || '').toLowerCase(),\n    name: p.name || '',\n    invitee_uri: p.uri || '',\n    event_uri: scheduled.uri || p.event || '',\n    calendly_event_id: String(scheduled.uri || p.event || p.uri || '').split('/').filter(Boolean).pop() || '',\n    start_time: scheduled.start_time || p.start_time || null,\n    end_time: scheduled.end_time || null,\n    cancel_reason: (p.cancellation && p.cancellation.reason) || '',\n    utm_content: (p.tracking && p.tracking.utm_content) || '',\n    // answers to the booking form's questions (e.g. object size, contract end) go into the meeting brief\n    questions: (Array.isArray(p.questions_and_answers) ? p.questions_and_answers : [])\n      .filter((q) => q && q.question && q.answer).map((q) => ({ question: String(q.question), answer: String(q.answer) })),\n    valid: (event === 'invitee.created' || event === 'invitee.canceled') && !!p.email,\n  };\n}\n\n/** decide what to do given existing Meetings with the same calendly_event_id */\nfunction meetingAction(parsed, existingMeetings) {\n  const existing = (existingMeetings || []).find((m) => m.calendly_event_id === parsed.calendly_event_id);\n  if (parsed.event === 'invitee.created') return existing ? { action: 'skip', reason: 'duplicate webhook', meeting: existing } : { action: 'create' };\n  if (parsed.event === 'invitee.canceled') return existing ? (existing.status === 'Cancelled' ? { action: 'skip', reason: 'already cancelled', meeting: existing } : { action: 'cancel', meeting: existing }) : { action: 'skip', reason: 'unknown meeting' };\n  return { action: 'skip', reason: 'unsupported event ' + parsed.event };\n}\n\n/** Booking link that tells the webhook which lead booked (Calendly passes utm_content back). */\nfunction bookingLink(link, leadRecordId) {\n  if (!link) return '';\n  return link + (link.includes('?') ? '&' : '?') + 'utm_source=nexsale&utm_content=' + encodeURIComponent(leadRecordId || '');\n}\n\n/** Calendly-Webhook-Signature: \"t=<ts>,v1=<hmac_sha256(key, t + '.' + body)>\" */\nfunction verifyCalendlySignature(opts) {\n  const { signingKey, header, rawBody, crypto } = opts || {};\n  const now = opts && opts.now !== undefined ? opts.now : Math.floor(Date.now() / 1000);\n  if (!signingKey) return { ok: true, skipped: true };\n  const parts = Object.fromEntries(String(header || '').split(',').map((kv) => kv.trim().split('=')));\n  if (!parts.t || !parts.v1) return { ok: false, reason: 'missing signature' };\n  if (Math.abs(now - Number(parts.t)) > 180) return { ok: false, reason: 'signature too old' };\n  const expected = crypto.createHmac('sha256', signingKey).update(parts.t + '.' + (rawBody || '')).digest('hex');\n  const a = Buffer.from(expected);\n  const b = Buffer.from(String(parts.v1));\n  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return { ok: false, reason: 'signature mismatch' };\n  return { ok: true };\n}\n\n/**\n * Free Calendly plan (no webhooks): turn polled API data into the same payloads a webhook would send,\n * so 07b_calendly handles both the same way. Only invitees created/changed within `windowMinutes` are\n * forwarded; 07b's duplicate check makes overlapping polls harmless.\n * events: GET /scheduled_events collection; inviteesByEvent: { <event uri>: GET /invitees collection }\n */\nfunction pollToPayloads(events, inviteesByEvent, now, windowMinutes) {\n  const t = new Date(now || Date.now()).getTime();\n  const since = t - (windowMinutes || 30) * 60000;\n  const out = [];\n  (events || []).forEach((ev) => {\n    ((inviteesByEvent || {})[ev.uri] || []).forEach((inv) => {\n      const canceled = inv.status === 'canceled' || ev.status === 'canceled';\n      const changedAt = new Date(canceled ? inv.updated_at || inv.created_at : inv.created_at).getTime();\n      if (!(changedAt >= since)) return;\n      out.push({\n        event: canceled ? 'invitee.canceled' : 'invitee.created',\n        source: 'calendly-poll',\n        payload: {\n          email: inv.email, name: inv.name, uri: inv.uri, status: inv.status, tracking: inv.tracking || {}, questions_and_answers: inv.questions_and_answers || [],\n          cancellation: inv.cancellation || undefined,\n          scheduled_event: { uri: ev.uri, name: ev.name, start_time: ev.start_time, end_time: ev.end_time },\n        },\n      });\n    });\n  });\n  return out;\n}\n\n/**\n * Cancel a booked meeting in Calendly (POST /scheduled_events/{uuid}/cancellation; token needs scheduled_events:write).\n * Calendly then sends its own cancellation email to the invitee and removes the event from the host's calendar.\n */\nfunction cancellationRequest(meeting, reason) {\n  const uuid = String((meeting && meeting.calendly_event_id) || '').replace(/[^A-Za-z0-9-]/g, '');\n  return { meeting_id: meeting && meeting.id, uuid, path: '/scheduled_events/' + (uuid || 'missing') + '/cancellation',\n    body: { reason: String(reason || 'Der Interessent hat den Termin abgesagt.').slice(0, 300) } };\n}\n\n/** Calendly answers 201 on success; 403 if already cancelled / in the past or the token lacks permission; 404 unknown. */\nfunction cancellationOk(response) {\n  const code = Number(response && (response.statusCode || response.status));\n  return code === 201 || code === 200;\n}\n\nfunction cancellationProblem(response) {\n  const r = response || {};\n  const b = r.body || {};\n  return (Number(r.statusCode) || '') + ' ' + String(b.title || b.message || r.error || 'no answer').slice(0, 120);\n}\n\nconst calendlyApi = { cancellationRequest, cancellationOk, cancellationProblem, parseCalendly, meetingAction, bookingLink, verifyCalendlySignature, pollToPayloads };\nif (typeof module !== 'undefined' && module.exports) module.exports = calendlyApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst p = $('Cancel plan').first().json;\nconst r = $('Cancel in Calendly').first().json;\nreturn [{ json: { ok: !!p.uuid && M.calendly.cancellationOk(r), problem: p.uuid ? M.calendly.cancellationProblem(r) : 'no Calendly event id stored' } }];\n"
+      }
+    },
+    {
+      "id": "7ad044b4-8dc8-45e0-8b96-e7057175c1b7",
+      "name": "Lead → Interested",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        720
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Cancel plan').first().json.lead) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Leads (batches of 10)"
+    },
+    {
+      "id": "6473ea67-7234-4b44-8e91-73ff5e5b6522",
+      "name": "CRM after cancel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        720
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.n8nInternalUrl }}/webhook/crm-sync",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ lead_record_id: $('Cancel plan').first().json.lead.records[0].id }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "notes": "Starts crm-sync right away (the schedule is the fallback)"
+    },
+    {
+      "id": "d657474e-7219-4a89-8eb6-e4eac0a6b450",
+      "name": "Cancel clicked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        720
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.slackMessages = (function () {\n  const module = { exports: {} };\n/**\n * slackMessages.js – Block Kit messages for #leads. Button values carry\n * \"action|recordId\" so Module 11 knows what to do.\n */\nfunction section(text) {\n  return { type: 'section', text: { type: 'mrkdwn', text: String(text).slice(0, 2900) } };\n}\n\nfunction button(text, actionId, value, style, url) {\n  const b = { type: 'button', text: { type: 'plain_text', text }, action_id: actionId, value: String(value || '') };\n  if (style) b.style = style;\n  if (url) b.url = url;\n  return b;\n}\n\nfunction trunc(s, n) {\n  s = String(s || '');\n  return s.length > n ? s.slice(0, n - 1) + '…' : s;\n}\n\nfunction campaignReady(c) {\n  const samples = (c.samples || []).slice(0, 3);\n  const blocks = [\n    section(`:rocket: *Campaign ready: ${c.name}*` + (c.client ? `\\nFor *${c.client}* · sender ${c.sender || '–'}` : '') + `\\n*${c.leadCount}* leads with approved sequences · average lead score *${c.avgScore}* · average email quality *${c.avgQuality}*` +\n      (c.flagged ? `\\n:warning: ${c.flagged} lead(s) left out (quality below 80 after one rewrite)` : '') +\n      (c.rejected ? `\\n${c.rejected} lead(s) rejected during enrichment` : '')),\n  ];\n  samples.forEach((s, i) => {\n    blocks.push({ type: 'divider' });\n    blocks.push(section(`*Sample ${i + 1}: ${s.company}* (score ${s.score}, quality ${s.quality})\\n*Betreff:* ${s.subject}\\n${trunc(s.body, 600)}`));\n  });\n  blocks.push({\n    type: 'actions',\n    elements: [\n      button('Approve and launch', 'approve_launch', 'approve_launch|' + c.campaignRecordId, 'primary'),\n      ...(c.listUrl ? [button('Open full list', 'open_list', 'open_list|' + c.campaignRecordId, null, c.listUrl)] : []),\n    ],\n  });\n  return { text: `Campaign ready: ${c.name} (${c.leadCount} leads)`, blocks };\n}\n\nfunction interestedApproval(r) {\n  return {\n    text: `${r.kind || 'Interested'} reply from ${r.company} – approve the answer?`,\n    blocks: [\n      section(`:speech_balloon: *${r.kind || 'Interested'} reply* from *${r.company}* (${r.fromEmail}) · confidence ${r.confidence}\\n>${trunc(r.replyBody, 500).replace(/\\n/g, '\\n>')}`),\n      section(`*Suggested answer:*\\n${trunc(r.suggestedReply, 1200)}`),\n      {\n        type: 'actions',\n        elements: [\n          button('Approve and send', 'reply_approve', 'reply_approve|' + r.replyRecordId, 'primary'),\n          button('Edit', 'reply_edit', 'reply_edit|' + r.replyRecordId, null, r.editUrl || undefined),\n          button('Reject', 'reply_reject', 'reply_reject|' + r.replyRecordId, 'danger'),\n        ],\n      },\n    ],\n  };\n}\n\nfunction sortReply(r) {\n  const cats = [['Interested', 'sort_interested'], ['Later', 'sort_later'], ['Not interested', 'sort_not_interested'], ['Unsubscribe', 'sort_unsubscribe']];\n  return {\n    text: `Please sort this reply from ${r.company}`,\n    blocks: [\n      section(`:question: *Please sort this reply* from *${r.company}* (${r.fromEmail})\\nAI guess: ${r.category || 'unclear'} (confidence ${r.confidence})\\n>${trunc(r.replyBody, 800).replace(/\\n/g, '\\n>')}`),\n      { type: 'actions', elements: cats.map(([label, id]) => button(label, id, id + '|' + r.replyRecordId)) },\n    ],\n  };\n}\n\nfunction inboundLead(l) {\n  return {\n    text: `New ${l.temperature} inbound lead: ${l.name} (${l.company})`,\n    blocks: [\n      section(`:telephone_receiver: *New ${String(l.temperature).toUpperCase()} inbound lead* – call by ${l.due}\\n*${l.name}* · ${l.company} · ${l.phone || 'no phone'}\\n${l.brief}`),\n      {\n        type: 'actions',\n        elements: [button('Mark called', 'task_called', 'task_called|' + l.taskRecordId, 'primary'), button('Not reached', 'task_not_reached', 'task_not_reached|' + l.taskRecordId)],\n      },\n    ],\n  };\n}\n\nfunction heldOrNoShow(m) {\n  return {\n    text: `Meeting with ${m.company}: held or no-show?`,\n    blocks: [\n      section(`:calendar: Meeting with *${m.company}* started at ${m.start}. Held or no-show?`),\n      { type: 'actions', elements: [button('Held', 'meeting_held', 'meeting_held|' + m.meetingRecordId, 'primary'), button('No-show', 'meeting_noshow', 'meeting_noshow|' + m.meetingRecordId, 'danger')] },\n    ],\n  };\n}\n\n/** Replaces the buttons with \"<Action> by <user> at <time>\". */\nfunction resolvedMessage(original, label, user, when) {\n  const blocks = ((original && original.blocks) || []).filter((b) => b.type !== 'actions');\n  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `:white_check_mark: ${label} by ${user} at ${when}` }] });\n  return { text: `${label} by ${user}`, blocks };\n}\n\nfunction parseActionValue(value) {\n  const [action, recordId] = String(value || '').split('|');\n  return { action, recordId };\n}\n\nconst slackMessagesApi = { campaignReady, interestedApproval, sortReply, inboundLead, heldOrNoShow, resolvedMessage, parseActionValue, section };\nif (typeof module !== 'undefined' && module.exports) module.exports = slackMessagesApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst a = $('Verify + parse').first().json;\nconst label = (() => { const p = $('Cancel plan').first().json, r = $('Calendly result').first().json; return 'Meeting with ' + p.company + ' on ' + p.when + ' cancelled' + (r.ok ? ' (also in Calendly, the invitee was notified)' : ' – *please cancel it in Calendly too* (Calendly: ' + r.problem + ')'); })();\nconst m = M.slackMessages.resolvedMessage(a.original, label, a.user, a.when);\nreturn [{ json: { ref: a.recordId, update_ts: a.ts, channel: a.channel, text: m.text, blocks: m.blocks } }];\n"
+      }
+    },
+    {
       "id": "bd670957-f442-4e91-8b4d-6b717a283f77",
       "name": "Update Slack message",
       "type": "n8n-nodes-base.executeWorkflow",
@@ -1080,6 +1357,13 @@
         [
           {
             "node": "Load meeting",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load meeting (cancel)",
             "type": "main",
             "index": 0
           }
@@ -1340,6 +1624,105 @@
         [
           {
             "node": "CRM stage update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load meeting (cancel)": {
+      "main": [
+        [
+          {
+            "node": "Load lead (cancel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load lead (cancel)": {
+      "main": [
+        [
+          {
+            "node": "Cancel plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel plan": {
+      "main": [
+        [
+          {
+            "node": "Meeting → Cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meeting → Cancelled": {
+      "main": [
+        [
+          {
+            "node": "Cancel in Calendly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel in Calendly": {
+      "main": [
+        [
+          {
+            "node": "Calendly result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendly result": {
+      "main": [
+        [
+          {
+            "node": "Lead → Interested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead → Interested": {
+      "main": [
+        [
+          {
+            "node": "CRM after cancel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM after cancel": {
+      "main": [
+        [
+          {
+            "node": "Cancel clicked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel clicked": {
+      "main": [
+        [
+          {
+            "node": "Update Slack message",
             "type": "main",
             "index": 0
           }

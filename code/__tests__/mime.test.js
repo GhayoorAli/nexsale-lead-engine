@@ -22,3 +22,18 @@ test('long bodies are wrapped and ascii headers untouched', () => {
   expect(M.encodeHeader()).toBe('');
 });
 test('requires to', () => expect(() => M.buildRawEmail({})).toThrow(/to/));
+
+test('test marker header and HTML alternative round-trip', () => {
+  const M2 = require('../mime');
+  const raw = M2.buildRawEmail({ from: 's@x.de', to: 'p@x.de', subject: 'Kampagne bereit', body: 'Text-Version', html: '<p>HTML-Version</p>', extraHeaders: { 'X-Nexsale-Test': 'true', 'Bad Header': 'x', 'X-Evil': 'a\r\nBcc: c@d.de' } });
+  const d = M2.decodeRawEmail(raw);
+  expect(d.headers['x-nexsale-test']).toBe('true');
+  expect(d.headers['bad header']).toBeUndefined();
+  expect(d.headers.bcc).toBeUndefined(); // no header injection
+  expect(d.headers['content-type']).toMatch(/multipart\/alternative/);
+  expect(d.body).toBe('Text-Version');
+  expect(d.html).toBe('<p>HTML-Version</p>');
+  const plain = M2.decodeRawEmail(M2.buildRawEmail({ from: 's@x.de', to: 'p@x.de', subject: 'S', body: 'Nur Text' }));
+  expect(plain.body).toBe('Nur Text');
+  expect(plain.html).toBe('');
+});

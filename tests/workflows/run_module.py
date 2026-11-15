@@ -23,6 +23,7 @@ from lib import FIX, Mock, Stack, fixture  # noqa: E402
 
 SIGNING_SECRET = "test_signing_secret_not_real"  # from tests/test.env (test-only value)
 PROSPECT = "prospect.test@nexsale-demo.test"
+SENDER = "sender.test@nexsale-demo.test"
 AUTH = ("admin", "test-control-password-1")  # Control Center login from tests/test.env (test-only value)
 
 
@@ -318,7 +319,7 @@ def t04_ai_emails(stack, mock):
     c.ok(all(e["body"].startswith(sal) and e["body"].count("Mit freundlichen Grüßen") == 1 and sig in e["body"] for e in E),
          "professional frame on every email: one formal salutation, one sign-off, full signature", [e["body"][:60] for e in E[:2]])
     c.ok(all("öffentlichen Impressum" in e["body"] and "Viele Grüße" not in e["body"] for e in E), "footer names the data source (GDPR); no informal sign-off left from the AI")
-    c.ok(all("[TEST]" not in e["subject"] for e in E), "drafts carry no [TEST] (added only by the guard)")
+    c.ok(all("[TEST]" not in e["subject"] for e in E), "drafts carry no [TEST]")
     cmp = next(x for x in mock.table("Campaigns") if x["id"] == camp["id"])
     s = mock.state()
     ready = [m for m in s["slack"] if m["text"].startswith("Campaign ready")]
@@ -326,9 +327,12 @@ def t04_ai_emails(stack, mock):
     btn = [e for m in ready for b in m["blocks"] if b["type"] == "actions" for e in b["elements"] if e["action_id"] == "approve_launch"]
     c.ok(len(btn) == 1 and btn[0]["value"] == f"approve_launch|{camp['id']}", "message has the 'Approve and launch' button", btn)
     c.ok(sum(1 for b in ready[0]["blocks"] if b["type"] == "divider") == 3, "3 sample sequences")
-    mails = [g for g in s["gmail"] if "Campaign ready" in g["subject"]]
-    c.ok(len(mails) == 1 and mails[0]["to"] == PROSPECT and mails[0]["subject"].startswith("[TEST]"), "'Campaign ready' email via guard ([TEST], test inbox)", mails)
-    c.ok(not any(g for g in s["gmail"] if "Campaign ready" not in g["subject"]), "nothing sent to leads before approval")
+    mails = [g for g in s["gmail"] if "Kampagne bereit" in g["subject"]]
+    c.ok(len(mails) == 1 and mails[0]["to"] == SENDER and mails[0]["test_marker"] == "true" and "[TEST]" not in mails[0]["subject"],
+         "'Campaign ready' email goes to the SENDER only (never the test prospect inbox), marked as test, no [TEST] in the subject", [(m["to"], m["subject"]) for m in mails])
+    c.ok(mails and mails[0]["subject"].startswith("Kampagne bereit:") and "<table" in mails[0]["html"] and "Beispiele" in mails[0]["body"] and "Im Control Center öffnen" in mails[0]["html"],
+         "professional format: German subject, HTML layout + plain text, samples, button to the Control Center", mails[0]["subject"] if mails else None)
+    c.ok(not any(g for g in s["gmail"] if "Kampagne bereit" not in g["subject"]), "nothing sent to leads before approval")
     all_success(c, {k: v for k, v in st.items() if k == "04_ai_emails"}, ["04_ai_emails"])
     # broken AI JSON twice (one lead, so parallel AI calls can't share the failures) → Needs review
     mock.reset()
@@ -393,7 +397,7 @@ def t06_sending(stack, mock):
     _, ex, st = run(stack, lambda: stack.webhook("sending-run", {}), expect=["06_sending"], timeout=120)
     s = mock.state()
     c.ok(len(s["gmail"]) == 2, "2 first emails sent", len(s["gmail"]))
-    c.ok(all(g["to"] == PROSPECT and g["subject"].startswith("[TEST] ") for g in s["gmail"]), "SAFETY: every send rewritten to the test inbox with [TEST]", [(g["to"], g["subject"]) for g in s["gmail"]])
+    c.ok(all(g["to"] == PROSPECT and g["test_marker"] == "true" and "[TEST]" not in g["subject"] for g in s["gmail"]), "SAFETY: every send rewritten to the test inbox and marked as test (header, no [TEST] in the subject)", [(g["to"], g["subject"]) for g in s["gmail"]])
     c.ok(not any("testfirma" in g["to"] for g in s["gmail"]), "SAFETY: the real company inbox gets nothing")
     L = {l["id"]: l for l in mock.table("Leads")}
     l0 = L[leads[0]["id"]]
@@ -412,7 +416,7 @@ def t06_sending(stack, mock):
         run(stack, lambda: stack.webhook("sending-run", {}), expect=["06_sending"], timeout=90)
     mine = [g for g in mock.state()["gmail"] if g["threadId"] == thread]
     c.ok(len(mine) == 4, "lead 1 got 4 emails in ONE thread", len(mine))
-    c.ok(all(g["subject"].startswith("[TEST] Re: ") for g in mine[1:]), "steps 2–4 reply in the thread (Re:)", [g["subject"] for g in mine])
+    c.ok(all(g["subject"].startswith("Re: ") for g in mine[1:]), "steps 2–4 reply in the thread (Re:)", [g["subject"] for g in mine])
     l0 = next(l for l in mock.table("Leads") if l["id"] == leads[0]["id"])
     c.ok(l0.get("sequence_finished") is True, "after step 4 the sequence is finished")
     # no email after a reply
@@ -464,7 +468,7 @@ def t07_replies(stack, mock):
             ans = [g for g in s["gmail"] if g["threadId"] == thread]
             c.ok(ans and "Damit ich das Gespräch gut vorbereiten kann, gern vorab kurz: Wie groß ist die Fläche" in ans[0]["body"] and ans[0]["body"].count("Mit freundlichen Grüßen") == 1,
                  "the client's qualifying questions are in the answer, before one sign-off", ans[0]["body"][:600] if ans else None)
-            c.ok(len(ans) == 1 and "calendly.com" in ans[0]["body"] and ans[0]["subject"].startswith("[TEST] Re:"), "interested ≥ 0.85: automatic answer with Calendly link in the same thread", ans)
+            c.ok(len(ans) == 1 and "calendly.com" in ans[0]["body"] and ans[0]["subject"].startswith("Re:") and ans[0]["test_marker"] == "true", "interested ≥ 0.85: automatic answer with Calendly link in the same thread", ans)
             c.ok("utm_content=" + lead["id"] in ans[0]["body"], "booking link carries the lead id")
             c.ok(l["status"] == "Interested", "lead Interested")
         if key == "interested_02":
@@ -491,8 +495,8 @@ def t07_replies(stack, mock):
             em = [e for e in mock.table("Emails") if new and e.get("lead_record_id") == new[0]["id"]]
             c.ok(len(new) == 1 and new[0].get("contact_name") == "Petra Klein" and new[0]["status"] == "Contacted" and new[0].get("contact_source") == "Empfehlung",
                  "referral with email: new lead for Petra Klein (Contacted, source Empfehlung)", new)
-            c.ok(len(s["gmail"]) == 1 and s["gmail"][0]["subject"].startswith("[TEST]") and "hat mich an Sie verwiesen" in s["gmail"][0]["body"] and "Sehr geehrte Damen und Herren" not in s["gmail"][0]["body"],
-                 "intro email to the referred person sent through the guard ([TEST], test inbox)", [g.get("subject") for g in s["gmail"]])
+            c.ok(len(s["gmail"]) == 1 and s["gmail"][0]["to"] == PROSPECT and s["gmail"][0]["test_marker"] == "true" and "hat mich an Sie verwiesen" in s["gmail"][0]["body"] and "Sehr geehrte Damen und Herren" not in s["gmail"][0]["body"],
+                 "intro email to the referred person sent through the guard (test inbox, marked as test)", [g.get("subject") for g in s["gmail"]])
             c.ok(len(em) == 1 and em[0].get("thread_id") and em[0]["status"] == "Sent", "the intro email is stored with its thread, so her reply is matched", em)
             c.ok(l["status"] == "Replied" and not l.get("next_send_at"), "original lead: sequence stopped", (l["status"], l.get("next_send_at")))
         if key == "referral_02":
@@ -528,14 +532,17 @@ def t07w_withdrawal(stack, mock):
     mock.reset()
     camp, lead, em = seed_contacted_lead(mock)
     mock_patch(mock, "Leads", lead["id"], {"status": "Meeting booked", "next_send_at": None})
-    mock.seed("Meetings", [{"key": "m", "lead": [lead["id"]], "lead_record_id": lead["id"], "status": "Booked", "start_time": iso(now() + timedelta(days=2))}])
+    mock.seed("Meetings", [{"key": "m", "lead": [lead["id"]], "lead_record_id": lead["id"], "status": "Booked", "start_time": iso(now() + timedelta(days=2)), "calendly_event_id": "WD-EVT-1"},
+                           {"key": "m2", "lead": [lead["id"]], "lead_record_id": lead["id"], "status": "Reminded", "start_time": iso(now() + timedelta(hours=20)), "calendly_event_id": "WD-EVT-2"}])
     run(stack, lambda: stack.webhook("crm-sync", {"lead_record_id": lead["id"]}), expect=["10_crm_sync"])
     hs = mock.state()["hubspot"]
     c.ok(len(hs["deals"]) == 1 and list(hs["deals"].values())[0]["properties"]["dealstage"] == "appointmentscheduled", "setup: open deal in HubSpot")
     _, ex, st = run(stack, lambda: post_reply(stack, "not_interested_01", "thr-test-1"), expect=["07_replies", "10_crm_sync"], timeout=120)
     l = next(x for x in mock.table("Leads") if x["id"] == lead["id"])
     c.ok(l["status"] == "Not interested", "lead Not interested", l["status"])
-    c.ok(mock.table("Meetings")[0]["status"] == "Cancelled", "booked meeting marked Cancelled", mock.table("Meetings")[0]["status"])
+    c.ok(all(m["status"] == "Cancelled" for m in mock.table("Meetings")), "booked and reminded meetings marked Cancelled", [m["status"] for m in mock.table("Meetings")])
+    cx = mock.state()["calendly_cancellations"]
+    c.ok(sorted(x["uuid"] for x in cx) == ["WD-EVT-1", "WD-EVT-2"] and all(x["auth"] == "Bearer " and x["reason"] for x in cx), "both events cancelled in Calendly (token, reason)", cx)
     hs = mock.state()["hubspot"]
     deal = list(hs["deals"].values())[0]["properties"]
     c.ok(len(hs["deals"]) == 1 and deal["dealstage"] == "closedlost" and deal.get("closed_lost_reason"), "the same HubSpot deal is Closed lost with a reason", deal)
@@ -543,8 +550,20 @@ def t07w_withdrawal(stack, mock):
     c.ok(contact.get("hs_lead_status") == "UNQUALIFIED", "HubSpot contact UNQUALIFIED", contact.get("hs_lead_status"))
     c.ok(l.get("crm_synced_status") == "Not interested", "Airtable records the synced status", l.get("crm_synced_status"))
     sl = [m["text"] for m in mock.state()["slack"]]
-    c.ok(any("withdrew after showing interest" in t and "Closed lost" in t and "cancel it in Calendly" in t for t in sl), "Slack: withdrew, deal closed, cancel in Calendly", sl)
+    c.ok(any("withdrew after showing interest" in t and "Closed lost" in t and t.count("cancelled in Calendly automatically") == 2 and "please cancel" not in t for t in sl),
+         "Slack: withdrew, deal closed, both meetings cancelled in Calendly automatically", sl)
     all_success(c, {k: v for k, v in st.items() if k in ("07_replies", "10_crm_sync")}, ["07_replies", "10_crm_sync"])
+    # A2) Calendly refuses (token revoked / event gone): meeting still Cancelled in Airtable, Slack asks for a manual cancel, run succeeds
+    mock.reset()
+    camp, lead, em = seed_contacted_lead(mock)
+    mock_patch(mock, "Leads", lead["id"], {"status": "Meeting booked", "next_send_at": None})
+    mock.seed("Meetings", [{"key": "m", "lead": [lead["id"]], "lead_record_id": lead["id"], "status": "Booked", "start_time": iso(now() + timedelta(days=2)), "calendly_event_id": "WD-EVT-3"}])
+    mock.fail("calendly", 403, 1)
+    _, ex, st = run(stack, lambda: post_reply(stack, "not_interested_01", "thr-test-1"), expect=["07_replies"])
+    c.ok(mock.table("Meetings")[0]["status"] == "Cancelled" and not mock.state()["calendly_cancellations"], "Calendly 403 → Airtable still Cancelled, nothing cancelled in Calendly")
+    sl = [m["text"] for m in mock.state()["slack"]]
+    c.ok(any("please cancel it in Calendly too* (Calendly: 403" in t for t in sl), "Slack asks for a manual cancel with Calendly's answer", sl)
+    all_success(c, {k: v for k, v in st.items() if k == "07_replies"}, ["07_replies"])
     # B) a first "no" from a contacted lead: nothing in HubSpot
     mock.reset()
     camp, lead, em = seed_contacted_lead(mock)
@@ -632,7 +651,7 @@ def t07c_reminders(stack, mock):
     _, ex, st = run(stack, lambda: stack.webhook("reminders-run", {}), expect=["07c_reminders"])
     M = {m["id"]: m for m in mock.table("Meetings")}
     s = mock.state()
-    c.ok(M[soon["id"]]["status"] == "Reminded" and any("Erinnerung" in g["subject"] for g in s["gmail"]), "reminder email 24 h before ([TEST], guarded)")
+    c.ok(M[soon["id"]]["status"] == "Reminded" and any("Erinnerung" in g["subject"] for g in s["gmail"]), "reminder email 24 h before (guarded, test inbox)")
     c.ok(any("held or no-show" in m["text"].lower() for m in s["slack"]) and M[past["id"]].get("held_check_sent_at"), "15 min after start Slack asks 'Held or no-show?'")
     all_success(c, {k: v for k, v in st.items() if k == "07c_reminders"}, ["07c_reminders"])
     return c
@@ -712,7 +731,10 @@ def t16_control_center(stack, mock):
     r = act({"action": "client_save", "id": "", "name": "Müller Facility GmbH", "sender_name": "Tom Müller", "sender_title": "Geschäftsführer", "sender_company": "Müller Facility GmbH",
              "sender_company_footer": "Müller Facility GmbH · Musterstr. 1, 10115 Berlin", "offer": "Wir reinigen Büros und Praxen in Berlin.", "target_positive_replies": "20", "target_meetings": "4"})
     clients = mock.table("Clients")
-    c.ok(r.status_code == 303 and "p=clients" in r.headers.get("location", "") and any(k["name"] == "Müller Facility GmbH" for k in clients), "new client saved → back to the client list", (r.status_code, r.headers.get("location")))
+    c.ok(r.status_code == 303 and r.headers.get("location", "").startswith(stack.base + "/webhook/app?p=clients") and any(k["name"] == "Müller Facility GmbH" for k in clients),
+         "new client saved → redirected to the client list (full address)", (r.status_code, r.headers.get("location")))
+    follow = requests.get(r.headers["location"], auth=AUTH, timeout=60)
+    c.ok(follow.status_code == 200 and "Müller Facility GmbH" in follow.text and "gespeichert" in follow.text, "following the redirect shows the page with the confirmation", follow.status_code)
     r = act({"action": "client_save", "id": "", "name": "Ohne Angebot", "sender_name": "X", "sender_company_footer": "Y"})
     c.ok(r.status_code == 303 and "err=1" in r.headers.get("location", "") and not any(k["name"] == "Ohne Angebot" for k in mock.table("Clients")), "invalid client is refused with a message")
     # campaign: create (click 1) → sourcing chain runs
@@ -738,11 +760,34 @@ def t16_control_center(stack, mock):
     new = [e for e in mock.table("Emails") if e["lead_record_id"] == rw_lead["id"]]
     c.ok(len(new) == 4 and not ({e["id"] for e in new} & old_ids) and next(l for l in mock.table("Leads") if l["id"] == rw_lead["id"])["status"] == "Approved",
          "rewrite: old emails deleted, 4 new ones, lead Approved again", (len(new), len(old_ids)))
+    # edit one email by hand: framed and rule-checked; a rule-breaking edit is refused
+    e2 = next(e for e in mock.table("Emails") if e["lead_record_id"] == rw_lead["id"] and int(e["step"]) == 2)
+    r = act({"action": "email_save", "id": e2["id"], "subject": e2["subject"], "text": "Ein kurzer Nachtrag zu Ihren Objekten in Berlin.\n\nPasst Ihnen Dienstag oder Donnerstag?"})
+    e2n = next(e for e in mock.table("Emails") if e["id"] == e2["id"])
+    c.ok("err=1" not in r.headers.get("location", "") and "Ein kurzer Nachtrag zu Ihren Objekten in Berlin." in e2n["body"] and "Mit freundlichen Grüßen" in e2n["body"] and "Antworten Sie mit STOP" in e2n["body"] and e2n.get("edited_by"),
+         "manual edit saved with salutation, signature and legal footer added by code", r.headers.get("location"))
+    r = act({"action": "email_save", "id": e2["id"], "subject": e2["subject"], "text": "Wir sind Ihr zuverlässiger Partner."})
+    c.ok("err=1" in r.headers.get("location", "") and next(e for e in mock.table("Emails") if e["id"] == e2["id"])["body"] == e2n["body"], "a rule-breaking edit is refused and nothing changes")
+    # approve a held lead by hand
+    held = approved[2]
+    mock_patch(mock, "Leads", held["id"], {"status": "Needs review", "needs_review_reason": "quality 70 below 80 after one rewrite"})
+    for e in [e for e in mock.table("Emails") if e["lead_record_id"] == held["id"]]:
+        mock_patch(mock, "Emails", e["id"], {"status": "Draft", "approved": False, "quality_score": 70})
+    act({"action": "lead_approve", "id": held["id"]})
+    hl = next(l for l in mock.table("Leads") if l["id"] == held["id"])
+    hes = [e for e in mock.table("Emails") if e["lead_record_id"] == held["id"]]
+    c.ok(hl["status"] == "Approved" and all(e["status"] == "Approved" and e.get("approved_by") for e in hes), "held lead approved by hand → lead and its 4 emails Approved", (hl["status"], [e["status"] for e in hes]))
+    # rewrite the whole campaign before launch
+    before_ids = {e["id"] for e in mock.table("Emails")}
+    run(stack, lambda: act({"action": "campaign_rewrite", "id": camp["id"]}), expect=["16_control_center", "04_ai_emails"], timeout=150)
+    cl = [l for l in mock.table("Leads") if l["campaign_record_id"] == camp["id"] and l["status"] == "Approved"]
+    fresh = [e for e in mock.table("Emails") if e["lead_record_id"] in {l["id"] for l in cl}]
+    c.ok(cl and len(fresh) == 4 * len(cl) and not ({e["id"] for e in fresh} & before_ids), "whole campaign rewritten: every approved lead has 4 new emails", (len(cl), len(fresh)))
     # launch (click 3) through the same logic as the Slack button
     run(stack, lambda: act({"action": "campaign_launch", "id": camp["id"]}), expect=["16_control_center", "11_slack_actions", "05_campaign_launch", "06_sending"], timeout=150)
     camp = next(x for x in mock.table("Campaigns") if x["id"] == camp["id"])
-    sent = [g for g in mock.state()["gmail"] if g["subject"].startswith("[TEST]") and "Campaign ready" not in g["subject"]]
-    c.ok(camp["status"] == "Live" and sent and all(g["to"] == PROSPECT for g in sent), "launch from the Control Center → Live, first [TEST] emails only to the test inbox", (camp["status"], len(sent)))
+    sent = [g for g in mock.state()["gmail"] if "Kampagne bereit" not in g["subject"]]
+    c.ok(camp["status"] == "Live" and sent and all(g["to"] == PROSPECT and g["test_marker"] == "true" for g in sent), "launch from the Control Center → Live, first emails only to the test inbox (marked as test)", (camp["status"], len(sent)))
     c.ok(not any(e for e in mock.table("Emails") if e["lead_record_id"] == ex_lead["id"] and e["status"] == "Sent"), "the excluded lead got nothing")
     c.ok(any("Approve and launch by Control Center" in m["text"] for m in mock.state()["slack"]), "Slack shows who launched it")
     # pause → nothing is sent; resume → Live
@@ -770,6 +815,20 @@ def t16_control_center(stack, mock):
          "approve with edited text → exactly that text sent in the thread, reply marked answered", (len(mails), rep.get("reply_approved")))
     r = act({"action": "reply_approve", "id": rep["id"], "text": "nochmal"})
     c.ok("err=1" in r.headers.get("location", ""), "approving twice is refused (never sent twice)")
+    # meetings: "Termin absagen" cancels in Airtable and Calendly, lead back to Interested
+    mock_patch(mock, "Leads", lead["id"], {"status": "Meeting booked", "next_send_at": None})
+    meet = mock.seed("Meetings", [{"key": "cc-m", "lead": [lead["id"]], "lead_record_id": lead["id"], "status": "Booked", "start_time": iso(now() + timedelta(days=3)), "calendly_event_id": "CC-EVT-1"}])[0]
+    page = requests.get(f"{base}/app", params={"p": "meetings"}, auth=AUTH, timeout=60).text
+    c.ok('value="meeting_cancel"' in page and meet["id"] in page, "meetings page: upcoming meeting has 'Termin absagen'")
+    run(stack, lambda: act({"action": "meeting_cancel", "id": meet["id"]}), expect=["16_control_center", "11_slack_actions"], timeout=120)
+    m = next(x for x in mock.table("Meetings") if x["id"] == meet["id"])
+    l = next(x for x in mock.table("Leads") if x["id"] == lead["id"])
+    cx = mock.state()["calendly_cancellations"]
+    c.ok(m["status"] == "Cancelled" and l["status"] == "Interested" and [x["uuid"] for x in cx] == ["CC-EVT-1"],
+         "Termin absagen → Meeting Cancelled, lead Interested, event cancelled in Calendly", (m["status"], l["status"], cx))
+    c.ok(any("cancelled (also in Calendly" in x["text"] for x in mock.state()["slack"]), "Slack confirms the cancel (also in Calendly)")
+    r = act({"action": "meeting_cancel", "id": meet["id"]})
+    c.ok("err=1" in r.headers.get("location", ""), "cancelling twice is refused")
     # security: the internal entry needs the key
     before_status = next(x for x in mock.table("Campaigns") if x["id"] == camp["id"])["status"]
     run(stack, lambda: stack.webhook("control-action", {"action": "approve_launch", "recordId": camp["id"]}), expect=["11_slack_actions"])
@@ -848,7 +907,7 @@ def t11_slack(stack, mock):
     run(stack, lambda: stack.webhook("slack-actions", raw=body, headers=headers), expect=["11_slack_actions"])
     s = mock.state()
     sent = [g for g in s["gmail"] if g["threadId"] == "thr-test-1"]
-    c.ok(len(sent) == 1 and sent[0]["subject"] == "[TEST] Re: Unterhaltsreinigung", "Approve sends the AI reply in the right email thread", sent)
+    c.ok(len(sent) == 1 and sent[0]["subject"] == "Re: Unterhaltsreinigung", "Approve sends the AI reply in the right email thread", sent)
     msg = next(m for m in s["slack"] if m["ts"] == posted["ts"])
     c.ok(any("Approved by demo.user" in (u.get("text") or "") for u in msg["updates"]), "Slack message changes to 'Approved by …'")
     r = mock.table("Replies")[0]

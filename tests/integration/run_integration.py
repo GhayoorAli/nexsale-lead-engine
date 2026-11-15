@@ -71,20 +71,20 @@ def s1_sourcing_chain(stack, mock):
 
 
 def s2_launch_chain(stack, mock):
-    c = rm.Check("I2 launch chain (Modules 5–6): Approve and launch → 4 [TEST] emails in one thread")
+    c = rm.Check("I2 launch chain (Modules 5–6): Approve and launch → 4 test emails in one thread")
     sourcing_chain(stack, mock)
     click_launch(stack, mock)
     c.ok(campaign(mock)["status"] == "Live", "campaign Live after one click")
     first = mock.state()["gmail"]
-    outreach = [g for g in first if "Campaign ready" not in g["subject"]]
-    c.ok(outreach and all(g["to"] == PROSPECT and g["subject"].startswith("[TEST]") for g in outreach), "first emails are [TEST] in the test inbox", len(outreach))
+    outreach = [g for g in first if "Kampagne bereit" not in g["subject"]]
+    c.ok(outreach and all(g["to"] == PROSPECT and g["test_marker"] == "true" and "[TEST]" not in g["subject"] for g in outreach), "first emails are [TEST] in the test inbox", len(outreach))
     lead = next(l for l in mock.table("Leads") if l["status"] == "Contacted")
     thread = next(e["thread_id"] for e in mock.table("Emails") if e["lead_record_id"] == lead["id"] and e["status"] == "Sent")
     for _ in range(3):
         tick_sending(stack, mock, lead["id"])
     mine = [g for g in mock.state()["gmail"] if g["threadId"] == thread]
     c.ok(len(mine) == 4, "one lead received 4 emails in ONE thread", len(mine))
-    c.ok(all(g["subject"].startswith("[TEST]") for g in mine), "all [TEST]")
+    c.ok(all(g["test_marker"] == "true" for g in mine), "all marked as test (header)")
     return c
 
 
@@ -301,11 +301,14 @@ def x1_real_company_blocked(stack, mock):
 
 
 def x2_demo_mode_test_prefix(stack, mock):
-    c = rm.Check("S2 DEMO_MODE: every sent email starts with [TEST] and goes to the test inbox; the company inbox gets nothing")
+    c = rm.Check("S2 DEMO_MODE: every prospect email goes to the test inbox (internal ones to the sender), marked as test; the company inbox gets nothing")
     r = s2_launch_chain(stack, mock)
     gm = mock.state()["gmail"]
-    c.ok(gm and all(g["subject"].startswith("[TEST]") for g in gm), "every email starts with [TEST]", [g["subject"] for g in gm if not g["subject"].startswith("[TEST]")])
-    c.ok(all(g["to"] == PROSPECT for g in gm), "every email went to TEST_PROSPECT_EMAIL", {g["to"] for g in gm})
+    c.ok(gm and all(g["test_marker"] == "true" and "[TEST]" not in g["subject"] for g in gm), "every email carries the test marker header (no [TEST] in the subject)", [g["subject"] for g in gm if g["test_marker"] != "true"])
+    internal = [g for g in gm if g["subject"].startswith("Kampagne bereit")]
+    prospect = [g for g in gm if g not in internal]
+    c.ok(prospect and all(g["to"] == PROSPECT for g in prospect), "every prospect email went to TEST_PROSPECT_EMAIL", {g["to"] for g in prospect})
+    c.ok(internal and all(g["to"] == rm.SENDER for g in internal), "internal notifications went to the sender only, never the test prospect inbox", {g["to"] for g in internal})
     lead_emails = {l.get("email") for l in mock.table("Leads") if l.get("email")}
     c.ok(not any(g["to"] in lead_emails for g in gm), "no company address received anything")
     c.ok(r.passed, "launch chain passed")

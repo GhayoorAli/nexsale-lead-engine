@@ -2,6 +2,10 @@
 
 Everything below was built and tested with `MOCK_EXTERNAL=true` (all external APIs served by `tests/mock_server`).
 The live tests (Level 3 integration and Level 4 end-to-end against real services) need these steps first.
+
+**Status 2026-11-15:** steps 1–4 and 6–11 are done and running live (Calendly on the free plan via the 3-minute poll, no webhook
+subscription needed; token scopes Users read + Scheduled events read/write). Still open: 5 (optional, the Control Center
+replaces it), 12 (recording + rehearsals), 13/14 (optional), the Real Service placeholders, and the Gmail re-login before the interview.
 All keys go into `.env` only (never into workflow JSON). Keep `DEMO_MODE=true` and `TEST_LEAD_LIMIT=10`.
 
 | # | What | Why it blocks | Exact steps |

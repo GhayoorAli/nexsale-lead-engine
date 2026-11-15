@@ -51,7 +51,8 @@ OFFER = subprocess.run(["node", "-e", "console.log(require('./code/validateEmail
 
 
 def with_sender(v):
-    return dict(v, sender_name=CLIENT["sender_name"], sender_title=CLIENT["sender_title"], sender_company=CLIENT["sender_company"], offer=OFFER)
+    """the input may carry its own client (sender_*, offer) – e.g. a Real Service client campaign; default: Nexsale"""
+    return dict({"sender_name": CLIENT["sender_name"], "sender_title": CLIENT["sender_title"], "sender_company": CLIENT["sender_company"], "offer": OFFER}, **v)
 
 
 def rules(seq):
@@ -76,7 +77,8 @@ def quality(seq, v):
 
 def _quality(seq, v):
     words = ", ".join(f"E-Mail {e['step']}: {w}" for e, w in zip(seq["emails"], rules(seq)["words"]))
-    return ai("quality_check", {"company_summary": v["company_summary"], "contact_name": v["contact_name"], "offer": OFFER,
+    return ai("quality_check", {"company_summary": v["company_summary"], "contact_name": v["contact_name"], "offer": v.get("offer", OFFER),
+                                "industry": v.get("industry", ""), "city": v.get("city", ""), "trigger": v.get("trigger", "(kein Anlass bekannt)"),
                                 "auto_checks": f"- Wortanzahl je E-Mail (max. 89): {words}\n- Durchgehend Sie-Form, keine Ausrufezeichen, keine Platzhalter",
                                 "sequence": "\n\n".join(f"E-Mail {e['step']}\nBetreff: {e['subject']}\n{e['body']}" for e in seq["emails"])})
 
@@ -90,7 +92,8 @@ def main():
     rows = []
     for _ in range(a.runs):
         for v in inputs:
-            seq = prepare(ai("email_sequence", dict(with_sender(v), retry_note="")), v)
+            v = with_sender(v)
+            seq = prepare(ai("email_sequence", dict(v, retry_note="")), v)
             r = rules(seq)
             invalid_first = not r["ok"]
             if not r["ok"]:  # like 14_ai_call: one retry that names the broken rules

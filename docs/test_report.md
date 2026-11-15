@@ -1,6 +1,6 @@
 # Test report
 
-Generated 2026-11-15 03:37 (Europe/Berlin). All runs in test mode: max 10 companies, no email to a real company.
+Generated 2026-11-15 15:00 (Europe/Berlin). All runs in test mode: max 10 companies, no email to a real company.
 
 Mode: **mock services** (`MOCK_EXTERNAL=true`, real n8n 1.123.5 in Docker, external APIs from `tests/mock_server`). Live runs against the real services need the steps in `docs/blockers.md`.
 
@@ -8,9 +8,9 @@ Mode: **mock services** (`MOCK_EXTERNAL=true`, real n8n 1.123.5 in Docker, exter
 
 | Level | Tool | Passed | Failed | Result |
 | --- | --- | --- | --- | --- |
-| 1 Unit (JS) | Jest | 416 | 0 | Pass – line coverage on `code/` 98.45% (min 80%) |
+| 1 Unit (JS) | Jest | 439 | 0 | Pass – line coverage on `code/` 98.55% (min 80%) |
 | 1 Unit (Python) | pytest | 14 | 0 | Pass |
-| 2 Workflow | run_module.py | 20 modules | 0 modules | Pass |
+| 2 Workflow | run_module.py | 20 modules | 1 modules | Fail |
 | 3 Integration | run_integration.py | 6 | 0 | Pass |
 | 3 Failure | run_integration.py | 6 | 0 | Pass |
 | 3 Safety | run_integration.py | 4 | 0 | Pass |
@@ -21,33 +21,34 @@ Mode: **mock services** (`MOCK_EXTERNAL=true`, real n8n 1.123.5 in Docker, exter
 
 | Module | Checks | Result | Seconds |
 | --- | --- | --- | --- |
-| 00 error handler / Google 500 → 3 retries → Slack | 6/6 | Pass | 14.0 |
-| 01 campaign setup form | 12/12 | Pass | 35.9 |
-| 02 lead sourcing | 29/29 | Pass | 32.7 |
-| 03 enrichment | 24/24 | Pass | 17.2 |
-| 04 AI emails + Campaign ready | 18/18 | Pass | 14.3 |
-| 05 campaign launch | 9/9 | Pass | 13.6 |
-| 06 sending and follow-ups | 13/13 | Pass | 24.0 |
-| 07 reply sorting (all fixtures) | 85/85 | Pass | 68.0 |
-| 07b Calendly | 9/9 | Pass | 11.7 |
+| --help (crashed) | 0/1 | Fail | 0.0 |
+| 00 error handler / Google 500 → 3 retries → Slack | 6/6 | Pass | 13.5 |
+| 01 campaign setup form | 13/13 | Pass | 22.8 |
+| 02 lead sourcing | 29/29 | Pass | 34.3 |
+| 03 enrichment | 24/24 | Pass | 66.1 |
+| 04 AI emails + Campaign ready | 19/19 | Pass | 14.2 |
+| 05 campaign launch | 9/9 | Pass | 14.0 |
+| 06 sending and follow-ups | 13/13 | Pass | 24.4 |
+| 07 reply sorting (all fixtures) | 85/85 | Pass | 65.0 |
+| 07b Calendly | 9/9 | Pass | 11.4 |
 | 07c reminders | 4/4 | Pass | 3.8 |
-| 07d Calendly poll (free plan) | 6/6 | Pass | 15.3 |
-| 07 newsletter / notification without a lead → stored, no Slack noise | 4/4 | Pass | 3.8 |
-| 07 lead says no after showing interest → meeting cancelled, HubSpot deal Closed lost | 19/19 | Pass | 50.4 |
+| 07d Calendly poll (free plan) | 6/6 | Pass | 49.9 |
+| 07 newsletter / notification without a lead → stored, no Slack noise | 4/4 | Pass | 3.9 |
+| 07 lead says no after showing interest → meeting cancelled, HubSpot deal Closed lost | 24/24 | Pass | 19.8 |
 | 08 reporting | 8/8 | Pass | 3.4 |
-| 08b live dashboard | 6/6 | Pass | 0.2 |
-| 09 inbound lead | 9/9 | Pass | 7.5 |
-| 10 CRM sync | 8/8 | Pass | 7.6 |
-| 11 Slack buttons | 10/10 | Pass | 67.0 |
-| 12 GDPR delete | 5/5 | Pass | 4.1 |
-| 16 Control Center: login, clients, campaign create/launch/pause, leads, replies | 26/26 | Pass | 41.8 |
+| 08b live dashboard | 8/8 | Pass | 0.2 |
+| 09 inbound lead | 9/9 | Pass | 7.6 |
+| 10 CRM sync | 8/8 | Pass | 42.4 |
+| 11 Slack buttons | 10/10 | Pass | 66.1 |
+| 12 GDPR delete | 5/5 | Pass | 4.0 |
+| 16 Control Center: login, clients, campaign create/launch/pause, leads, replies | 35/35 | Pass | 93.9 |
 
 ## Level 3 – integration
 
 | Scenario | Checks | Result |
 | --- | --- | --- |
 | I1 sourcing chain (Modules 1–4): form → 'Campaign ready', no clicks | 4/4 | Pass |
-| I2 launch chain (Modules 5–6): Approve and launch → 4 [TEST] emails in one thread | 4/4 | Pass |
+| I2 launch chain (Modules 5–6): Approve and launch → 4 test emails in one thread | 4/4 | Pass |
 | I3 reply chain (7, 10, 11): interested → auto answer → booking → Meeting booked + HubSpot deal | 3/3 | Pass |
 | I4 unsure reply: Slack buttons → click Interested → same result as I3 | 4/4 | Pass |
 | I5 inbound chain (9, 10): quiz → call task + Slack brief within 1 minute | 2/2 | Pass |
@@ -69,14 +70,14 @@ Mode: **mock services** (`MOCK_EXTERNAL=true`, real n8n 1.123.5 in Docker, exter
 | Scenario | Checks | Result |
 | --- | --- | --- |
 | S1 an email addressed to a real company is blocked by the guard and the run stops | 5/5 | Pass |
-| S2 DEMO_MODE: every sent email starts with [TEST] and goes to the test inbox; the company inbox gets nothing | 4/4 | Pass |
+| S2 DEMO_MODE: every prospect email goes to the test inbox (internal ones to the sender), marked as test; the company inbox gets nothing | 5/5 | Pass |
 | S3 Google requests follow Max leads: 10 (or empty = TEST_LEAD_LIMIT 10) → exactly 1 request, no paging | 2/2 | Pass |
 | S4 no secret appears in any file in workflows/ (scan also in GitHub Actions) | 2/2 | Pass |
 
 ## Level 4 – end-to-end (mock services)
 
-- Run 1: Pass – clicks 3, form → 'Campaign ready' 8.7 s, whole flow 68.2 s
-- Run 2: Pass – clicks 3, form → 'Campaign ready' 8.6 s, whole flow 33.6 s
+- Run 1: Pass – clicks 3, form → 'Campaign ready' 9.8 s, whole flow 34.8 s
+- Run 2: Pass – clicks 3, form → 'Campaign ready' 9.8 s, whole flow 34.6 s
 
 ## Live run on the real services (test mode)
 
@@ -89,7 +90,7 @@ Mode: **mock services** (`MOCK_EXTERNAL=true`, real n8n 1.123.5 in Docker, exter
 
 ## AI email quality (real gpt-4o-mini on the real leads)
 
-- 5/7 sequences pass (80+), 5/7 on the first try; score computed in code from quoted evidence, judge temperature 0
+- 5/6 sequences pass (80+), 5/6 on the first try; score computed in code from quoted evidence, judge temperature 0
 - Negative controls: a generic sequence scores 40, a sequence with invented claims fails (any invented claim = fail)
 
 ## Level 5 – acceptance checklist (mock services)

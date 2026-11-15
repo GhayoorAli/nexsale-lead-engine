@@ -198,7 +198,7 @@ const user = (p.user && (p.user.username || p.user.name)) || 'someone';
 const route = a.action.startsWith('sort_') ? 'sort' : a.action;
 const when = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }).format(new Date());
 return [{ json: { route, action: a.action, recordId: a.recordId, user, when, channel: (p.channel && p.channel.id) || (p.container && p.container.channel_id), ts: (p.message && p.message.ts) || (p.container && p.container.message_ts), original: p.message || {} } }];`);
-  w.switchOn('Action', "$('Verify + parse').first().json.route", ['approve_launch', 'reply_approve', 'reply_reject', 'sort', 'task_called', 'task_not_reached', 'meeting_held', 'meeting_noshow']);
+  w.switchOn('Action', "$('Verify + parse').first().json.route", ['approve_launch', 'reply_approve', 'reply_reject', 'sort', 'task_called', 'task_not_reached', 'meeting_held', 'meeting_noshow', 'meeting_cancel']);
   const done = (name, label) => w.code(name, ['slackMessages'], `
 const a = $('Verify + parse').first().json;
 const label = ${label};
@@ -253,6 +253,32 @@ return [{ json: out }];`);
   w.atWrite('Call task', 'Tasks', 'POST', { body: "$('Meeting outcome').first().json.task" });
   w.kick('CRM stage update', 'crm-sync', "{ lead_record_id: $('Meeting outcome').first().json.lead.records[0].id }");
   done('Meeting clicked', "a.action === 'meeting_held' ? 'Marked held' : 'Marked no-show'");
+  // cancel an upcoming meeting (Control Center "Termin absagen"): Airtable Cancelled, then Calendly (the invitee gets
+  // Calendly's cancellation email), lead back to Interested, HubSpot stage follows. Calendly refusing never hides the cancel.
+  w.at(4, 4);
+  w.atGet('Load meeting (cancel)', 'Meetings', "$('Verify + parse').first().json.recordId");
+  w.atGet('Load lead (cancel)', 'Leads', "$('Load meeting (cancel)').first().json.fields.lead_record_id");
+  w.code('Cancel plan', ['calendly'], `
+const m = $('Load meeting (cancel)').first().json;
+if (!['Booked', 'Reminded'].includes(m.fields.status)) throw new Error('Meeting ' + m.id + ' is ' + m.fields.status + ' – only booked meetings can be cancelled');
+const l = $('Load lead (cancel)').first().json;
+const req = M.calendly.cancellationRequest({ id: m.id, calendly_event_id: m.fields.calendly_event_id }, 'Der Termin wurde von Nexsale abgesagt. Wir melden uns für einen neuen Termin.');
+return [{ json: Object.assign(req, { company: l.fields.company_name || '', when: String(m.fields.start_time || '').slice(0, 16).replace('T', ' '),
+  meeting: { records: [{ id: m.id, fields: { status: 'Cancelled' } }], typecast: true },
+  lead: { records: [{ id: l.id, fields: { status: 'Interested' } }], typecast: true } }) }];`);
+  w.atWrite('Meeting → Cancelled', 'Meetings', 'PATCH', { body: "$('Cancel plan').first().json.meeting" });
+  w.http('Cancel in Calendly', {
+    method: 'POST', url: `={{ ${CFG('calendlyApiUrl')} }}{{ $('Cancel plan').first().json.path }}`, headers: [['Authorization', '=Bearer {{ $env.CALENDLY_TOKEN }}']],
+    body: "$('Cancel plan').first().json.body", fullResponse: true, neverError: true, continueOnFail: true,
+    notes: 'Calendly API: POST /scheduled_events/{uuid}/cancellation (201 = cancelled)',
+  });
+  w.code('Calendly result', ['calendly'], `
+const p = $('Cancel plan').first().json;
+const r = $('Cancel in Calendly').first().json;
+return [{ json: { ok: !!p.uuid && M.calendly.cancellationOk(r), problem: p.uuid ? M.calendly.cancellationProblem(r) : 'no Calendly event id stored' } }];`);
+  w.atWrite('Lead → Interested', 'Leads', 'PATCH', { body: "$('Cancel plan').first().json.lead" });
+  w.kick('CRM after cancel', 'crm-sync', "{ lead_record_id: $('Cancel plan').first().json.lead.records[0].id }");
+  done('Cancel clicked', "(() => { const p = $('Cancel plan').first().json, r = $('Calendly result').first().json; return 'Meeting with ' + p.company + ' on ' + p.when + ' cancelled' + (r.ok ? ' (also in Calendly, the invitee was notified)' : ' – *please cancel it in Calendly too* (Calendly: ' + r.problem + ')'); })()");
   w.at(16, 0);
   w.execWorkflow('Update Slack message', '15_slack_notify');
 
@@ -277,6 +303,8 @@ return [{ json: out }];`);
   w.connect('No-show?', 'Call task', 0);
   w.connect('No-show?', 'CRM stage update', 1);
   w.connect('Call task', 'CRM stage update');
+  w.connect('Action', 'Load meeting (cancel)', 8);
+  w.chain('Load meeting (cancel)', 'Load lead (cancel)', 'Cancel plan', 'Meeting → Cancelled', 'Cancel in Calendly', 'Calendly result', 'Lead → Interested', 'CRM after cancel', 'Cancel clicked', 'Update Slack message');
   w.chain('CRM stage update', 'Meeting clicked', 'Update Slack message');
   return w;
 }

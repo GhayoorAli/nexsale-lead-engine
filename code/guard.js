@@ -2,7 +2,8 @@
  * guard.js – the safety guard that runs right before every email-sending node.
  * - Blocks the run (throws) if any recipient is not on TEST_RECIPIENT_ALLOWLIST.
  * - An empty allowlist blocks everything in test mode.
- * - DEMO_MODE: rewrites To to TEST_PROSPECT_EMAIL, drops Cc/Bcc, prefixes the subject with [TEST].
+ * - DEMO_MODE: rewrites To to TEST_PROSPECT_EMAIL (internal notifications: to SENDER_EMAIL), drops Cc/Bcc and marks
+ *   the message as a test with the header X-Nexsale-Test (no visible [TEST] in the subject – user's decision 2026-11-15).
  * - Real mode (DEMO_MODE=false) additionally needs ALLOW_REAL_SENDING=true, otherwise it blocks.
  */
 class GuardError extends Error {
@@ -28,6 +29,8 @@ function splitAddresses(v) {
     .filter(Boolean);
 }
 
+const INTERNAL_PURPOSES = ['internal', 'report'];
+
 function guardEmail(msg, cfg) {
   if (!msg || typeof msg !== 'object') throw new GuardError('Guard: no message');
   if (!cfg || typeof cfg !== 'object') throw new GuardError('Guard: no config');
@@ -36,11 +39,13 @@ function guardEmail(msg, cfg) {
   const out = Object.assign({}, msg);
   if (cfg.demoMode) {
     if (!cfg.testProspectEmail) throw new GuardError('Guard: DEMO_MODE is on but TEST_PROSPECT_EMAIL is empty');
-    out.to = cfg.testProspectEmail;
+    // internal notifications (Campaign ready, weekly report) inform the team only – never the test prospect inbox
+    const internal = INTERNAL_PURPOSES.includes(String(msg.purpose || ''));
+    out.to = internal && cfg.senderEmail ? cfg.senderEmail : cfg.testProspectEmail;
     out.cc = '';
     out.bcc = '';
-    const subj = String(msg.subject || '');
-    out.subject = /^\[TEST\]/.test(subj) ? subj : '[TEST] ' + subj;
+    out.subject = String(msg.subject || '').replace(/^\s*\[TEST\]\s*/, '');
+    out.testMarker = true; // becomes the header X-Nexsale-Test: true
     out.original_to = original.to.join(', ');
   } else if (!cfg.allowRealSending) {
     throw new GuardError('Guard: DEMO_MODE is off but ALLOW_REAL_SENDING is not true – blocked', { to: original.to });
@@ -69,5 +74,5 @@ function isBlocked(email, blocklist) {
   });
 }
 
-const guardApi = { GuardError, guardEmail, isBlocked, splitAddresses };
+const guardApi = { GuardError, guardEmail, isBlocked, splitAddresses, INTERNAL_PURPOSES };
 if (typeof module !== 'undefined' && module.exports) module.exports = guardApi;

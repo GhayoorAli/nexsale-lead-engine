@@ -3,6 +3,7 @@ const G = require('../guard');
 const cfg = {
   demoMode: true,
   testProspectEmail: 'prospect.test@nexsale-demo.test',
+  senderEmail: 'sender.test@nexsale-demo.test',
   allowlist: ['prospect.test@nexsale-demo.test', 'sender.test@nexsale-demo.test'],
 };
 
@@ -11,7 +12,9 @@ describe('guardEmail – safety rules', () => {
     const out = G.guardEmail({ to: 't.becker@glanzwerk-berlin.example', subject: 'Hallo', body: 'x' }, cfg);
     expect(out.to).toBe('prospect.test@nexsale-demo.test');
     expect(out.original_to).toBe('t.becker@glanzwerk-berlin.example');
-    expect(out.subject).toBe('[TEST] Hallo');
+    // no visible [TEST] any more (user's decision); the mail is marked with a header instead
+    expect(out.subject).toBe('Hallo');
+    expect(out.testMarker).toBe(true);
     expect(out.guard.recipients).toEqual(['prospect.test@nexsale-demo.test']);
   });
 
@@ -43,11 +46,24 @@ describe('guardEmail – safety rules', () => {
     expect(out.subject).toBeUndefined();
   });
 
-  test('[TEST] prefix is not doubled; cc and bcc dropped', () => {
+  test('an old [TEST] prefix is removed; cc and bcc dropped', () => {
     const out = G.guardEmail({ to: 'x@y.de', cc: 'c@y.de', bcc: 'b@y.de', subject: '[TEST] Re: Hallo' }, cfg);
-    expect(out.subject).toBe('[TEST] Re: Hallo');
+    expect(out.subject).toBe('Re: Hallo');
     expect(out.cc).toBe('');
     expect(out.bcc).toBe('');
+  });
+
+  test('DEMO_MODE: internal notifications go to the sender only, never to the test prospect inbox', () => {
+    const out = G.guardEmail({ to: 'sender.test@nexsale-demo.test', subject: 'Campaign ready: X', purpose: 'internal' }, cfg);
+    expect(out.to).toBe('sender.test@nexsale-demo.test');
+    expect(G.guardEmail({ to: 'whoever@firma.de', purpose: 'report' }, cfg).to).toBe('sender.test@nexsale-demo.test');
+    // prospect-facing purposes always go to the test inbox, whatever the address
+    ['outreach', 'reply', 'referral', 'reminder', 'inbound confirmation', undefined].forEach((purpose) =>
+      expect(G.guardEmail({ to: 'sender.test@nexsale-demo.test', purpose }, cfg).to).toBe('prospect.test@nexsale-demo.test'));
+    // the sender must still be on the allowlist
+    expect(() => G.guardEmail({ to: 'x@y.de', purpose: 'internal' }, Object.assign({}, cfg, { allowlist: ['prospect.test@nexsale-demo.test'] }))).toThrow(/not on allowlist: sender.test/);
+    // no sender configured → falls back to the test inbox
+    expect(G.guardEmail({ to: 'x@y.de', purpose: 'internal' }, Object.assign({}, cfg, { senderEmail: '' })).to).toBe('prospect.test@nexsale-demo.test');
   });
 
   test('no recipient / no message / no config', () => {

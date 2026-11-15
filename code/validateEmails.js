@@ -179,18 +179,44 @@ function messageText(body) {
 }
 
 /**
+ * Paragraphs are formatting, so code does them (live: gpt-4o-mini often wrote email 1 as one block or with single line
+ * breaks, and 5 of 12 good Hausverwaltung sequences were rejected for it). Words are never changed:
+ * single line breaks become paragraph breaks; a single block of 40+ words is split into
+ * [first sentence] [middle] [closing question].
+ */
+function formatParagraphs(text) {
+  let t = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!t || /\n\s*\n/.test(t)) return t;
+  if (/\n/.test(t)) return t.split(/\n+/).map((x) => x.trim()).filter(Boolean).join('\n\n');
+  if (countWords(t) < 40) return t;
+  // a sentence ends at . ? ! followed by a space and a capital letter or quote ("7.000" or "z. B." never split)
+  const sentences = t.split(/(?<=[.!?])\s+(?=[A-ZÄÖÜ„"])/).reduce((acc, piece) => {
+    // "z. B.", "ca.", "Nr.", "Dr." end with a short word + period: not a sentence end → glue the next piece back on
+    if (acc.length && /(^|\s)[A-Za-zÄÖÜäöüß]{1,3}\.$/.test(acc[acc.length - 1])) acc[acc.length - 1] += ' ' + piece;
+    else acc.push(piece);
+    return acc;
+  }, []);
+  if (sentences.length < 3) return t;
+  const parts = sentences.map((x) => x.trim());
+  const last = /\?$/.test(parts[parts.length - 1]) ? parts.pop() : null;
+  const first = parts.shift();
+  return [first, parts.join(' '), last].filter((x) => x && x.trim()).join('\n\n');
+}
+
+/**
  * Salutation, sign-off and signature are fixed boilerplate, so code writes them (the same on every email) and the
  * model only writes the message. Live: the model dropped greeting/sign-off in ~3 of 10 sequences.
  */
 function ensureFrame(body, opts) {
   opts = opts || {};
-  const text = messageText(body);
+  const text = opts.paragraphs ? formatParagraphs(messageText(body)) : messageText(body);
   if (!text) return '';
   const signature = opts.signature || buildSignature({ sender_name: opts.senderName });
   return salutationLine(opts) + '\n\n' + text + '\n\n' + signature;
 }
 
 const validateEmailsApi = {
+  formatParagraphs,
   MAX_FOLLOWUP_WORDS,
   MAX_SUBJECT_WORDS,
   FILLER_RE,

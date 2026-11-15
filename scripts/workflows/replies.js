@@ -102,7 +102,7 @@ const client = clients.find((k) => k.id === camp.client_record_id) || clients.fi
 const calendly = M.calendly.bookingLink(client.calendly_link || cfg.calendlyLink, d.lead.id);
 const frame = { frame: true, contactName: d.lead.contact_name || '', contactSalutation: d.lead.contact_salutation || '', senderName: client.sender_name || '', signature: M.validateEmails.buildSignature(client) };
 return [{ json: { ref: 'answer', prompt_id: 'interested_reply', max_tokens: 400, frame, calendly, qualifying: String(client.qualifying_questions || '').trim(), validate_opts: Object.assign({ calendlyLink: calendly }, frame),
-  vars: { calendly_link: calendly, sender_name: client.sender_name || '', offer: M.validateEmails.offerText(client, camp.industry), contact_name: d.lead.contact_name || '',
+  vars: { calendly_link: calendly, sender_name: client.sender_name || '', offer: M.validateEmails.offerText(client, camp.industry), writing_notes: String(client.writing_notes || '').trim() || '(keine)', contact_name: d.lead.contact_name || '',
     company_name: d.lead.company_name || '', reply_body: d.reply.body_clean || d.reply.body } } }];`);
   w.execWorkflow('AI: answer', '14_ai_call');
   w.code('Answer', ['validateEmails'], `
@@ -189,7 +189,7 @@ const frame = { frame: true, contactName: plan.name, senderName: client.sender_n
 return [{ json: { plan, client, frame, footer: M.validateEmails.buildFooter(client),
   request: { ref: 'referral', prompt_id: 'referral_intro', max_tokens: 400, validate_opts: frame, vars: {
     sender_name: client.sender_name || '', sender_title: client.sender_title || '', sender_company: client.sender_company || client.name || '',
-    offer: M.validateEmails.offerText(client, camp.industry), referrer_name: d.lead.contact_name || d.reply.from_email, company_name: d.lead.company_name || '',
+    offer: M.validateEmails.offerText(client, camp.industry), writing_notes: String(client.writing_notes || '').trim() || '(keine)', referrer_name: d.lead.contact_name || d.reply.from_email, company_name: d.lead.company_name || '',
     referral_name: plan.name || 'Ansprechpartner', company_summary: d.lead.company_summary || '' } } } }];`);
   w.ifTrue('Referral: contact?', "$('Referral plan').first().json.plan.action === 'contact'");
   w.code('Referral request', [], `return [{ json: $('Referral plan').first().json.request }];`);
@@ -243,21 +243,36 @@ return [{ json: { records: [{ fields: { key: 'Referral · ' + d.lead.company_nam
 
   // Not interested / Unsubscribe after earlier interest: cancel booked meetings, close the HubSpot deal
   w.at(16, 3);
-  w.atList('Booked meetings', 'Meetings', "\"AND({lead_record_id}='\" + String($('Decide branch').first().json.lead.id || '__none__') + \"',{status}='Booked')\"");
+  w.atList('Booked meetings', 'Meetings', "\"AND({lead_record_id}='\" + String($('Decide branch').first().json.lead.id || '__none__') + \"',OR({status}='Booked',{status}='Reminded'))\"");
   w.code('Withdrawal', ['replies', 'airtable'], `
 const d = $('Decide branch').first().json;
 const plan = M.replies.withdrawalPlan({ branch: d.route.branch, lead: d.lead, fromEmail: d.reply.from_email, meetings: M.airtable.fromItems($('Booked meetings').all()) });
 return [{ json: Object.assign(plan, { cancel: { records: plan.cancelMeetingIds.map((id) => ({ id, fields: { status: 'Cancelled' } })), typecast: true } }) }];`);
   w.ifTrue('Meetings to cancel?', "$('Withdrawal').first().json.cancelMeetingIds.length > 0");
   w.atWrite('Cancel meetings', 'Meetings', 'PATCH', { body: "$('Withdrawal').first().json.cancel" });
+  // Airtable is already Cancelled (so 07d's later poll of the cancelled event is a no-op); now cancel in Calendly itself,
+  // which also sends the invitee Calendly's cancellation email. A failure never stops the run: Slack then asks for a manual cancel.
+  w.code('Calendly cancel requests', ['calendly'], `
+return $('Withdrawal').first().json.meetings.map((m) => ({ json: M.calendly.cancellationRequest(m, 'Der Interessent hat per E-Mail abgesagt.') }));`);
+  w.http('Cancel in Calendly', {
+    method: 'POST', url: `={{ ${CFG('calendlyApiUrl')} }}{{ $json.path }}`, headers: [['Authorization', '=Bearer {{ $env.CALENDLY_TOKEN }}']],
+    body: '$json.body', fullResponse: true, neverError: true, continueOnFail: true, batch: { size: 1, interval: 300 },
+    notes: 'Calendly API: POST /scheduled_events/{uuid}/cancellation (201 = cancelled)',
+  });
 
   // Not interested / Unsubscribe / Out of office / Bounce / Unmatched: short note
   w.at(19, 3);
-  w.code('Status note', [], `
+  w.code('Status note', ['calendly', 'replies'], `
 const d = $('Decide branch').first().json;
 const wd = $('Withdrawal').isExecuted ? $('Withdrawal').first().json : { withdrew: false, crmSync: false };
 const name = d.lead.company_name || d.reply.from_email;
-if (wd.withdrew) return [{ json: { ref: d.lead.id, text: wd.text, crm_sync: wd.crmSync } }];
+if (wd.withdrew) {
+  const reqs = $('Calendly cancel requests').isExecuted ? $('Calendly cancel requests').all().map((i) => i.json) : [];
+  const res = $('Cancel in Calendly').isExecuted ? $('Cancel in Calendly').all().map((i) => i.json) : [];
+  const results = reqs.length ? reqs.map((r, i) => !r.uuid ? { ok: false, problem: 'no Calendly event id stored' }
+    : { ok: M.calendly.cancellationOk(res[i]), problem: M.calendly.cancellationProblem(res[i]) }) : null;
+  return [{ json: { ref: d.lead.id, text: M.replies.withdrawalText(wd, results), crm_sync: wd.crmSync, calendly: results } }];
+}
 const t = { 'Not interested': ':no_entry_sign: *' + name + '*: not interested, lead closed.',
   Unsubscribe: ':lock: *' + name + '* unsubscribed (' + d.cls.by + '). Added to the Blocklist, never contacted again.',
   'Out of office': ':palm_tree: *' + name + '* is out of office until ' + (d.cls.return_date || 'unknown') + '. Sequence paused, resumes ' + String(d.route.resumeAt).slice(0, 16) + '.',
@@ -295,7 +310,7 @@ return [{ json: { ref: d.lead.id || 'unmatched', text: t } }];`);
   w.chain('Booked meetings', 'Withdrawal', 'Meetings to cancel?');
   w.connect('Meetings to cancel?', 'Cancel meetings', 0);
   w.connect('Meetings to cancel?', 'Status note', 1);
-  w.connect('Cancel meetings', 'Status note');
+  w.chain('Cancel meetings', 'Calendly cancel requests', 'Cancel in Calendly', 'Status note');
   w.chain('Answer request', 'AI: answer', 'Answer', 'Save suggested reply', 'Confidence ≥ 0.85?');
   w.connect('Confidence ≥ 0.85?', 'Answer email', 0);
   w.connect('Confidence ≥ 0.85?', 'Approval message', 1);
