@@ -9,7 +9,8 @@ function aiEmails() {
   w.at(1, 0);
   w.config();
   w.atList('Load Enriched leads', 'Leads', "\"OR({status}='Enriched',{status}='Drafting')\"", { maxRecords: 20, maxPages: 1 });
-  w.atList('Load campaigns', 'Campaigns', "\"{status}='Sourcing'\"");
+  // Ready too: a lead whose emails are rewritten from the Control Center before launch (the ready check stays Sourcing-only)
+  w.atList('Load campaigns', 'Campaigns', "\"OR({status}='Sourcing',{status}='Ready')\"");
   w.atList('Load clients', 'Clients', null);
   w.code('Claim', ['airtable'], `
 const now = Date.now();

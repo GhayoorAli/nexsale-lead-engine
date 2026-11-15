@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const OUT = path.join(__dirname, '..', 'workflows');
-const GROUPS = ['shared', 'sourcing', 'enrichment', 'emails', 'launch', 'replies', 'reporting', 'inbound'];
+const GROUPS = ['shared', 'sourcing', 'enrichment', 'emails', 'launch', 'replies', 'reporting', 'inbound', 'control'];
 
 function buildAll() {
   const list = [];

@@ -20,6 +20,7 @@ const IDS = {
   '01_campaign_setup': 'NxsWf01CampSetup',
   '01b_campaign_status': 'NxsWf01bCmpStat0',
   '08b_dashboard': 'NxsWf08bDashbrd0',
+  '16_control_center': 'NxsWf16CtrlCntr0',
   '02_lead_sourcing': 'NxsWf02LeadSourc',
   '03_enrichment': 'NxsWf03Enrichmnt',
   '04_ai_emails': 'NxsWf04AiEmails0',
@@ -311,6 +312,21 @@ return [{ json: { cfg: M.config.buildConfig($env), trigger, startedAt: new Date(
       notes: `Airtable: ${method === 'POST' ? 'create' : 'update'} ${tableName} (batches of 10)`,
       executeOnce: opts.executeOnce,
     });
+  }
+
+  /** HTTP Basic login (CONTROL_USER / CONTROL_PASSWORD) in front of a page webhook: 'Login' → 'Logged in?' → 401 or onwards. */
+  basicLogin(triggerName) {
+    this.code('Login', ['controlCenter'], `
+const crypto = require('crypto');
+const req = $('${triggerName}').first().json;
+const auth = M.controlCenter.checkAuth((req.headers || {}).authorization, $env.CONTROL_USER || 'admin', $env.CONTROL_PASSWORD || '', crypto);
+return [{ json: { ok: auth.ok, reason: auth.reason, user: auth.user } }];`);
+    this.ifTrue('Logged in?', '$json.ok');
+    this.add('Ask for login', 'n8n-nodes-base.respondToWebhook', 1.1, {
+      respondWith: 'text', responseBody: "={{ 'Login erforderlich: ' + $json.reason }}",
+      options: { responseCode: 401, responseHeaders: { entries: [{ name: 'WWW-Authenticate', value: 'Basic realm="Nexsale Control Center", charset="UTF-8"' }, { name: 'Content-Type', value: 'text/plain; charset=utf-8' }] } },
+    });
+    this.connect('Logged in?', 'Ask for login', 1);
   }
 
   /** fire-and-forget call to another workflow's webhook (kick) */

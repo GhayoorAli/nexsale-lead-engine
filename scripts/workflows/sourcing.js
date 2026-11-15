@@ -126,6 +126,7 @@ return [{ json: { ref: s.campaign_record_id, text: ':mag: ' + s.leads + ' leads 
 function campaignStatus() {
   const w = new Workflow('01b_campaign_status', 'Nexsale 01b – Campaign status page', { description: 'GET /webhook/campaign-status?id=<campaign>: the page the form lands on after click 1. Live progress, refreshes itself until the campaign is Ready.' });
   w.webhook('Status request', 'campaign-status', { method: 'GET', responseMode: 'responseNode' });
+  w.basicLogin('Status request');
   w.config();
   w.atList('Campaign', 'Campaigns', "($('Status request').first().json.query.id ? \"RECORD_ID()='\" + String($('Status request').first().json.query.id).replace(/[^A-Za-z0-9]/g, '') + \"'\" : 'TRUE()')",
     { maxRecords: 1, maxPages: 1, sort: ['created_at', 'desc'], notes: 'The campaign from ?id=, or the newest one' });
@@ -138,7 +139,9 @@ const airtableUrl = cfg.airtableBaseId && !cfg.mock ? 'https://airtable.com/' + 
 const dashboardUrl = cfg.n8nBaseUrl + '/webhook/dashboard' + (campaign && campaign.client_record_id ? '?client=' + campaign.client_record_id : '');
 return [{ json: { html: M.statusPage.renderStatusPage({ campaign, leads, airtableUrl, dashboardUrl, refreshSeconds: 5, notFound: !campaign }) } }];`);
   w.respond('Show page', "$json.html", { html: true });
-  w.chain('Status request', 'Config', 'Campaign', 'Campaign leads', 'Render page', 'Show page');
+  w.chain('Status request', 'Login', 'Logged in?');
+  w.connect('Logged in?', 'Config', 0);
+  w.chain('Config', 'Campaign', 'Campaign leads', 'Render page', 'Show page');
   return w;
 }
 

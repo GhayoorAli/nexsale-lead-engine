@@ -42,6 +42,8 @@ Every lead stores `source` and `sourced_at`; the email footer says where the con
 ## 4. Minimisation, retention, deletion
 
 - Only business contact data is stored; no private social profiles, no scraping behind logins.
+- Access: the Control Center, dashboard and status page need a password (`CONTROL_PASSWORD`); from the internet only
+  Slack's button endpoint is reachable (`ngrok/policy.yml`), never the data pages or the n8n editor.
 - Only leads with interest go to HubSpot; a later "no" closes the deal (Closed lost) instead of keeping an open opportunity.
 - **Deletion on request:** workflow `12_delete_lead` (GDPR) removes a person from Airtable (lead, emails, replies, meetings,
   tasks, logs) and keeps only the address on the Blocklist so they are never contacted again.

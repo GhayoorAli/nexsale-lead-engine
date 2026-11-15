@@ -15,6 +15,8 @@ Two kinds of campaigns, chosen by the form's **Client** field (empty = Nexsale i
 
 **New here? Start with the [Handover Guide](docs/HANDOVER.md)** – installation, daily use, testing and troubleshooting.
 
+**Operate everything from the Control Center:** http://localhost:5678/webhook/app (login `CONTROL_USER` / `CONTROL_PASSWORD` from `.env`).
+
 ![Architecture](docs/architecture.svg)
 
 ## Three clicks to launch
@@ -48,6 +50,7 @@ Two kinds of campaigns, chosen by the form's **Client** field (empty = Nexsale i
 | `13_send_email` | **The only place that sends email**: Blocklist + safety guard right before the send node | sub-workflow |
 | `14_ai_call` | Every AI call: prompt from `prompts/`, JSON only, validated, 1 retry | sub-workflow |
 | `15_slack_notify` | Post / update Slack messages, fail loudly on `ok:false` | sub-workflow |
+| `16_control_center` | **Control Center**: clients, campaigns (create/launch/pause/stop), leads, replies, meetings, system – password-protected, local only | GET `/webhook/app`, POST `/webhook/app-action` |
 
 Modules never depend on each other's internals; they talk through Airtable, webhooks and schedules.
 Data protection and the go-live checklist: [`docs/datenschutz.md`](docs/datenschutz.md).

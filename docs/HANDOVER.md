@@ -29,6 +29,10 @@ checklist in section 9 is done.
 
 ## 1. What the system does
 
+**Everything is operated from one place: the Control Center** (http://localhost:5678/webhook/app, password-protected).
+Add clients, start campaigns, review leads and emails, launch, pause, approve replies, handle meetings and see the results –
+without touching Airtable or n8n. Slack sends notifications and offers the same quick buttons.
+
 Nexsale is a B2B outbound agency: it finds companies, writes them personal emails, reads the replies and books meetings.
 This system automates that so **one person launches a campaign in three clicks** and a person is asked again only when the
 AI is unsure about a reply.
@@ -57,12 +61,13 @@ client's record in Airtable, so a new client needs **no code change** (section 4
 
 ### How it is built (one paragraph)
 
-- **n8n** runs 22 workflows in Docker on your Mac.
+- **n8n** runs 23 workflows in Docker on your Mac.
 - **Airtable** is the database.
 - **Google Places** finds companies, **OpenAI** writes and checks.
 - **Gmail** sends and receives, **Slack** is the control panel (clicks 2 and 3, notifications).
 - **Calendly** books meetings, **HubSpot** is the CRM.
-- **ngrok** gives your Mac one fixed public address, so Slack can deliver button clicks.
+- **ngrok** gives your Mac one fixed public address, so Slack can deliver button clicks. It lets **only** Slack's clicks
+  through (`ngrok/policy.yml`); everything else (Control Center, dashboard, n8n editor) is reachable only on your Mac.
 
 All business logic lives in tested JavaScript modules (`code/`) that are embedded into the n8n workflows automatically.
 Architecture picture: `docs/architecture.png`. Why things are built the way they are: `docs/decisions.md`.
@@ -152,7 +157,8 @@ N8N_INTERNAL_URL=http://localhost:5678
 ```
 
 `WEBHOOK_URL` stays **localhost** on purpose: it is n8n's own address and keeps the campaign form working. The tunnel
-only forwards Slack's button clicks.
+only forwards Slack's button clicks: `ngrok/policy.yml` answers every other path with 403, so the Control Center, the
+dashboard and the n8n editor are never reachable from the internet.
 
 ### 3.4 Start n8n and create the API key
 
@@ -164,13 +170,22 @@ This starts n8n, its Postgres database and the ngrok tunnel.
 
 1. Open http://localhost:5678 and create the owner account (any email and password – it is local).
 2. **Settings → n8n API → Create an API key** → copy it into `.env`: `N8N_API_KEY=<key>`.
-3. Every time you change `.env`, restart n8n so it reads the new values:
+3. Choose the **Control Center login** and put it in `.env` (use a long random password):
+
+```
+CONTROL_USER=admin
+CONTROL_PASSWORD=<long random password>
+```
+
+   It protects the Control Center, the dashboard and the campaign status page. Without it they stay locked.
+4. Every time you change `.env`, restart n8n so it reads the new values:
 
 ```bash
 docker compose up -d --force-recreate n8n
 ```
 
-**Check:** `curl -s -o /dev/null -w "%{http_code}\n" https://<NGROK_DOMAIN>/healthz` prints `200`.
+**Check:** `curl -s -o /dev/null -w "%{http_code}\n" https://<NGROK_DOMAIN>/webhook/dashboard` prints `403` (the tunnel
+works and blocks everything except Slack clicks), and http://localhost:5678/webhook/app asks for the login.
 
 ### 3.5 Airtable (the database)
 
@@ -261,7 +276,7 @@ docker compose up -d --force-recreate n8n      # reads the final .env
 .venv/bin/python setup/deploy_workflows.py
 ```
 
-The script imports all 22 workflows into n8n (or updates them – it matches by name), connects them with each other and
+The script imports all 23 workflows into n8n (or updates them – it matches by name), connects them with each other and
 with the Gmail credential, and activates every workflow that has a trigger.
 
 **Check:** in http://localhost:5678 all "Nexsale …" workflows are listed; those with a trigger show **Active** (13, 14 and
@@ -271,7 +286,9 @@ with the Gmail credential, and activates every workflow that has a trigger.
 
 ## 4. Configure the clients
 
-Open Airtable → **Clients**. Each row is one client the system writes for. Fields:
+Open the **Control Center → Clients** (http://localhost:5678/webhook/app?p=clients) → **+ Neuer Client** or click a client to
+edit it. Each client is one company the system writes for. The form checks the input (required fields, unique name,
+`https://` booking link) and saves it to Airtable. Fields:
 
 | Field | Meaning | Example |
 |---|---|---|
@@ -291,7 +308,9 @@ The demo data contains two clients:
 - **Real Service GmbH:** the sender "Laura Schmidt", the footer and the offer are **placeholders**. Replace them with the
   client's real data before using them outside a demo.
 
-**New client:** add a row, fill the fields above, then type its `name` in the form. No code change, no deployment.
+**New client:** Control Center → Clients → **+ Neuer Client**, fill the form, save. It appears immediately in the client
+dropdown of "Neue Kampagne" and as a filter on the dashboard. No code change, no deployment. (Editing the Airtable row
+directly also works.)
 
 ---
 
@@ -301,11 +320,11 @@ Run these in order. Each takes a minute.
 
 | # | Do | Expected |
 |---|---|---|
-| 1 | Open http://localhost:5678/webhook/dashboard | the dashboard page with your clients |
-| 2 | Open http://localhost:5678/form/campaign-setup | the form "Neue Outbound-Kampagne" |
-| 3 | Submit a small campaign: name "Test Leipzig", Client empty, industry "Reinigungsunternehmen", city "Leipzig", size 10-49, target role "Geschäftsführer, Inhaber", Max leads 15 | the status page appears and fills in step by step; after about a minute "Kampagne bereit: Klick 2 und 3 in Slack" |
+| 1 | Open http://localhost:5678/webhook/app and log in (`CONTROL_USER` / `CONTROL_PASSWORD`) | the Control Center "Übersicht" with your clients |
+| 2 | **+ Neue Kampagne** | the campaign form with the client dropdown |
+| 3 | Start a campaign: name "Test Leipzig", client Nexsale GmbH, industry "Reinigungsunternehmen", city "Leipzig", size 10-49, target role "Geschäftsführer, Inhaber", Max leads 15 | the campaign page; leads appear within about a minute, status changes to Ready |
 | 4 | Slack #leads | "Campaign ready: Test Leipzig", For Nexsale GmbH, 3 samples, buttons |
-| 5 | Press **Approve and launch** | the message changes to "Approve and launch by …", then "… is live" |
+| 5 | Press **Approve and launch** (in Slack or on the campaign page in the Control Center) | status Live; Slack shows "Approve and launch by …" and "… is live" |
 | 6 | Test prospect inbox (check Spam the first time) | `[TEST] …` emails signed by the client's sender |
 | 7 | Reply to one: *Klingt interessant, haben Sie nächste Woche Zeit?* | within ~2 minutes: an answer with the booking link and the qualifying questions in the same thread; Slack "Auto-answered …" |
 | 8 | Book a slot through that link | within ~3 minutes: Slack "Meeting booked with …" with the meeting brief; a deal in HubSpot |
@@ -316,9 +335,29 @@ If a step fails, see section 12.
 
 ## 6. Daily use: running a campaign
 
+### 6.0 The Control Center
+
+Open **http://localhost:5678/webhook/app** (bookmark it) and log in. Areas in the left menu:
+
+| Area | What you do there |
+|---|---|
+| **Übersicht** | what needs you now (replies to approve or sort, campaigns ready to launch or blocked, meetings to mark, open tasks, errors), guarantee per client, key figures |
+| **Kampagnen** | every campaign with status and numbers; **Approve and launch**, **Pausieren**, **Fortsetzen**, **Beenden** |
+| Campaign page | its leads (contact, source, email, score, quality, status, reason or trigger), costs, link to the live status page |
+| Lead page | all details, the 4 emails, replies, meeting brief; **E-Mails neu schreiben** (before launch) and **Lead ausschließen** |
+| **+ Neue Kampagne** | click 1, with a dropdown of your clients |
+| **Antworten** | drafted answers to **edit and approve** (or discard), unclear replies to **sort**, all replies |
+| **Termine** | upcoming and past meetings with the AI brief; **Hat stattgefunden / No-show** |
+| **Clients** | add and edit clients |
+| **System** | safety switches (test mode), open tasks (**Erledigt**), last errors, links to n8n and Airtable |
+| **Dashboard ↗** | the results page (also password-protected) |
+
+Every action shows a confirmation at the top of the page. Actions that Slack also offers (launch, approve, sort, held/no-show)
+run through the very same workflow logic, so both always behave identically. A reply can never be approved twice.
+
 ### 6.1 Click 1 – the form
 
-Open **http://localhost:5678/form/campaign-setup** (bookmark it).
+Use **Control Center → + Neue Kampagne** (recommended) or the standalone form **http://localhost:5678/form/campaign-setup**.
 
 | Field | What to enter | Tips |
 |---|---|---|
@@ -357,18 +396,19 @@ Press **Submit**. You land on the **live status page**:
   An AI quality check then scores the sequence using quoted evidence: is the opening a real detail of this company, is
   anything invented? Below 80 → rewritten once → still below 80 → "Needs review" (not sent).
 
-### 6.3 Click 2 – review in Slack
+### 6.3 Click 2 – review (Slack or Control Center)
 
 The "Campaign ready" message shows:
 - the client and the sender,
 - the number of approved leads, the average score and quality,
 - 3 sample sequences.
 
-**Open full list** shows every approved lead.
+**Open full list** shows every approved lead. In the Control Center, the campaign page shows every lead with its emails;
+you can rewrite or exclude single leads before launching.
 
 ### 6.4 Click 3 – launch
 
-**Approve and launch** runs five checks:
+**Approve and launch** (Slack button or Control Center campaign page) runs five checks:
 - enough approved leads: **at least 5 in test mode, 20 in real mode** (so use Max leads of about 12+ in tests),
 - complete sequences (4 emails, each passed the quality check),
 - nobody on the Blocklist,
@@ -435,9 +475,10 @@ qualified to buy; No-show or a later "no" → closed lost.
 
 | What | Where |
 |---|---|
-| Campaign form (click 1) | http://localhost:5678/form/campaign-setup |
+| **Control Center** (everything) | http://localhost:5678/webhook/app (login `CONTROL_USER` / `CONTROL_PASSWORD`) |
+| Campaign form (click 1) | Control Center → + Neue Kampagne, or http://localhost:5678/form/campaign-setup |
 | Live status of a campaign | opens after Submit; latest: http://localhost:5678/webhook/campaign-status |
-| Dashboard (guarantee, funnel, costs, A/B test, replies, meetings) | http://localhost:5678/webhook/dashboard – buttons at the top filter per client; refreshes every minute |
+| Dashboard (guarantee, funnel, costs, A/B test, replies, meetings) | http://localhost:5678/webhook/dashboard (same login) – buttons at the top filter per client; refreshes every minute |
 | Clicks 2 and 3, all notifications, error alerts | Slack #leads |
 | All data | Airtable: Campaigns, Leads (contact, `contact_source`, `trigger`, `reject_reason`, `needs_review_reason`, `meeting_brief`), Emails (`body`, `status`), Replies (`category`, `summary`, `suggested_reply`), Meetings, Tasks, Blocklist, Logs |
 | Sent emails | sender Gmail → Sent; test emails arrive in the test prospect inbox |
@@ -461,6 +502,8 @@ curl -X POST http://localhost:5678/webhook/delete-lead -H "Content-Type: applica
 | `TEST_RECIPIENT_ALLOWLIST` | a guard right before the only send node stops the run if any recipient is not on this list (empty list = nothing is sent) |
 | `ALLOW_REAL_SENDING=false` | even with `DEMO_MODE=false`, real sending stays blocked until this is `true` |
 | Blocklist (Airtable) | checked before every single email |
+| `CONTROL_PASSWORD` | login for the Control Center, dashboard and status page; empty = locked |
+| `ngrok/policy.yml` | only `/webhook/slack-actions` (and `/webhook/calendly`) are reachable from the internet |
 
 After changing `.env`: `docker compose up -d --force-recreate n8n`.
 
@@ -563,8 +606,10 @@ Design decisions with their reasons are numbered in `docs/decisions.md`. Read th
 | Symptom | Cause | Fix |
 |---|---|---|
 | localhost:5678 does not open | Docker Desktop not running | start Docker Desktop, then `docker compose up -d` |
+| Control Center / dashboard keeps asking for the login, or says "CONTROL_PASSWORD is not set" | wrong user/password, or no password in `.env` | check `CONTROL_USER` / `CONTROL_PASSWORD` in `.env`, then `docker compose up -d --force-recreate n8n` |
+| A Control Center action shows a red message | the action is not possible in this state (e.g. launch a Live campaign, rewrite after launch, approve twice) | the message says why; nothing was changed |
 | The form keeps spinning after Submit | `WEBHOOK_URL` is not `http://localhost:5678/`, or the form was opened through the ngrok address | set `WEBHOOK_URL=http://localhost:5678/`, restart n8n, open the form on localhost |
-| Slack: "could not handle this payload" when clicking a button | Slack cannot reach n8n | check `https://<NGROK_DOMAIN>/healthz` returns 200; check the Request URL in the Slack app is `https://<NGROK_DOMAIN>/webhook/slack-actions` and **saved**; `docker compose ps` shows `tunnel` running |
+| Slack: "could not handle this payload" when clicking a button | Slack cannot reach n8n | check `https://<NGROK_DOMAIN>/webhook/dashboard` returns 403 (tunnel up); check the Request URL in the Slack app is `https://<NGROK_DOMAIN>/webhook/slack-actions` and **saved**; `docker compose ps` shows `tunnel` running |
 | No Slack messages at all | bot token wrong or bot not in #leads | check `SLACK_BOT_TOKEN`, `/invite` the app to #leads |
 | A red error alert in Slack | a workflow failed; the alert names it | open n8n → Executions → the failed run shows the node and the message |
 | No emails sent / guard error | recipient not on the allowlist, or Gmail login expired | check `TEST_RECIPIENT_ALLOWLIST`; open the Gmail credential in n8n → Sign in with Google |
@@ -605,11 +650,12 @@ Design decisions with their reasons are numbered in `docs/decisions.md`. Read th
 | 08b_dashboard | live dashboard | GET `/webhook/dashboard?client=` |
 | 09_inbound_leads | quiz / ad leads → call task + Slack brief + confirmation | Form `/form/inbound-quiz`, webhook `inbound-lead` |
 | 10_crm_sync | HubSpot contact, company, deal | webhook `crm-sync` + every 15 min |
-| 11_slack_actions | every Slack button (signature-checked) | webhook `slack-actions` |
+| 11_slack_actions | every Slack button (signature-checked) and the same actions from the Control Center | webhook `slack-actions`; internal `control-action` (password key, local only) |
 | 12_delete_lead | GDPR deletion, keeps a Blocklist entry | webhook `delete-lead` |
 | 13_send_email | the **only** place that sends email: Blocklist + allowlist guard | sub-workflow |
 | 14_ai_call | every AI call: prompt, JSON only, validated, one targeted retry | sub-workflow |
 | 15_slack_notify | posts / updates Slack messages | sub-workflow |
+| 16_control_center | the Control Center (pages + actions), login | GET `/webhook/app`, POST `/webhook/app-action` |
 
 ### Running costs (test mode, measured)
 

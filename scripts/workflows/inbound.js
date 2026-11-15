@@ -166,9 +166,25 @@ return M.airtable.updateBatches(plans.map((p, i) => ({ id: p.json.lead.id, field
 function slackActions() {
   const w = new Workflow('11_slack_actions', 'Nexsale 11 – Slack buttons (click 3 and approvals)', { description: 'Verifies the Slack signature, runs the action, then edits the message to "<Action> by <user> at <time>".' });
   w.webhook('Slack interactivity', 'slack-actions', { rawBody: true });
+  // the Control Center (16) triggers the same actions here, so Slack and the Control Center always behave identically;
+  // local only (the tunnel lets only /webhook/slack-actions through) and authenticated with CONTROL_PASSWORD
+  w.at(0, 2);
+  w.webhook('Control action', 'control-action');
+  w.at(1, 0);
   w.config();
   w.code('Verify + parse', ['slackSignature', 'slackMessages'], `
 const crypto = require('crypto');
+if ($('Control action').isExecuted) {
+  const req = $('Control action').first().json;
+  const key = String((req.headers || {})['x-control-key'] || '');
+  const expected = String($env.CONTROL_PASSWORD || '');
+  if (!expected || key.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(key), Buffer.from(expected))) throw new Error('Control action rejected: wrong or missing key');
+  const b = req.body || {};
+  const action = String(b.action || '');
+  if (!action) return [];
+  const when = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }).format(new Date());
+  return [{ json: { route: action.startsWith('sort_') ? 'sort' : action, action, recordId: String(b.recordId || ''), user: String(b.user || 'Control Center'), when, channel: null, ts: null, original: null } }];
+}
 const item = $('Slack interactivity').first();
 let raw = '';
 try { raw = (await this.helpers.getBinaryDataBuffer(0, 'data')).toString('utf8'); } catch (e) { raw = ''; }
@@ -242,6 +258,7 @@ return [{ json: out }];`);
 
   // verify first: getBinaryDataBuffer(0) reads the raw body of THIS node's input, which must be the webhook
   w.chain('Slack interactivity', 'Verify + parse', 'Config', 'Action');
+  w.connect('Control action', 'Verify + parse');
   w.connect('Action', 'Campaign → Launch', 0);
   w.connect('Action', 'Load reply', 1);
   w.connect('Action', 'Reply rejected', 2);

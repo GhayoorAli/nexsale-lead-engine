@@ -1,6 +1,6 @@
 # Test report
 
-Generated 2026-11-15 03:06 (Europe/Berlin). All runs in test mode: max 10 companies, no email to a real company.
+Generated 2026-11-15 03:37 (Europe/Berlin). All runs in test mode: max 10 companies, no email to a real company.
 
 Mode: **mock services** (`MOCK_EXTERNAL=true`, real n8n 1.123.5 in Docker, external APIs from `tests/mock_server`). Live runs against the real services need the steps in `docs/blockers.md`.
 
@@ -8,9 +8,9 @@ Mode: **mock services** (`MOCK_EXTERNAL=true`, real n8n 1.123.5 in Docker, exter
 
 | Level | Tool | Passed | Failed | Result |
 | --- | --- | --- | --- | --- |
-| 1 Unit (JS) | Jest | 395 | 0 | Pass – line coverage on `code/` 98.23% (min 80%) |
+| 1 Unit (JS) | Jest | 416 | 0 | Pass – line coverage on `code/` 98.45% (min 80%) |
 | 1 Unit (Python) | pytest | 14 | 0 | Pass |
-| 2 Workflow | run_module.py | 19 modules | 0 modules | Pass |
+| 2 Workflow | run_module.py | 20 modules | 0 modules | Pass |
 | 3 Integration | run_integration.py | 6 | 0 | Pass |
 | 3 Failure | run_integration.py | 6 | 0 | Pass |
 | 3 Safety | run_integration.py | 4 | 0 | Pass |
@@ -25,7 +25,7 @@ Mode: **mock services** (`MOCK_EXTERNAL=true`, real n8n 1.123.5 in Docker, exter
 | 01 campaign setup form | 12/12 | Pass | 35.9 |
 | 02 lead sourcing | 29/29 | Pass | 32.7 |
 | 03 enrichment | 24/24 | Pass | 17.2 |
-| 04 AI emails + Campaign ready | 18/18 | Pass | 14.7 |
+| 04 AI emails + Campaign ready | 18/18 | Pass | 14.3 |
 | 05 campaign launch | 9/9 | Pass | 13.6 |
 | 06 sending and follow-ups | 13/13 | Pass | 24.0 |
 | 07 reply sorting (all fixtures) | 85/85 | Pass | 68.0 |
@@ -40,6 +40,7 @@ Mode: **mock services** (`MOCK_EXTERNAL=true`, real n8n 1.123.5 in Docker, exter
 | 10 CRM sync | 8/8 | Pass | 7.6 |
 | 11 Slack buttons | 10/10 | Pass | 67.0 |
 | 12 GDPR delete | 5/5 | Pass | 4.1 |
+| 16 Control Center: login, clients, campaign create/launch/pause, leads, replies | 26/26 | Pass | 41.8 |
 
 ## Level 3 – integration
 

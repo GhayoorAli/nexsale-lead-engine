@@ -93,6 +93,7 @@ return [{ json: { slack: { ref: 'weekly', text }, email: { ref: 'weekly-' + m.ge
 function dashboard() {
   const w = new Workflow('08b_dashboard', 'Nexsale 08b – Live dashboard', { description: 'GET /webhook/dashboard[?client=<id>]: guarantee (replies vs 20, meetings vs 4–5) with pace, KPIs, funnel, campaigns, A/B subject test, recent replies, upcoming meetings. Computed live from Airtable.' });
   w.webhook('Dashboard request', 'dashboard', { method: 'GET', responseMode: 'responseNode' });
+  w.basicLogin('Dashboard request');
   w.config();
   ['Clients', 'Campaigns', 'Leads', 'Emails', 'Replies', 'Meetings'].forEach((t) => w.atList(t, t, null, { maxPages: 20 }));
   w.code('Render dashboard', ['airtable', 'report', 'dashboard'], `
@@ -101,7 +102,9 @@ const all = (n) => M.airtable.fromItems($(n).all());
 return [{ json: { html: M.dashboard.renderDashboard({ clients: all('Clients'), campaigns: all('Campaigns'), leads: all('Leads'), emails: all('Emails'),
   replies: all('Replies'), meetings: all('Meetings'), clientId: String(q.client || '').replace(/[^A-Za-z0-9]/g, ''), now: new Date().toISOString() }) } }];`);
   w.respond('Show dashboard', '$json.html', { html: true });
-  w.chain('Dashboard request', 'Config', 'Clients', 'Campaigns', 'Leads', 'Emails', 'Replies', 'Meetings', 'Render dashboard', 'Show dashboard');
+  w.chain('Dashboard request', 'Login', 'Logged in?');
+  w.connect('Logged in?', 'Config', 0);
+  w.chain('Config', 'Clients', 'Campaigns', 'Leads', 'Emails', 'Replies', 'Meetings', 'Render dashboard', 'Show dashboard');
   return w;
 }
 

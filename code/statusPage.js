@@ -60,7 +60,7 @@ function renderStatusPage(opts) {
   const next = p.ready && !p.live
     ? `<div class="next"><b>Nächster Schritt:</b> Öffnen Sie in Slack den Kanal <b>#leads</b>, prüfen Sie die Nachricht "Campaign ready" (Klick 2) und klicken Sie <b>Approve and launch</b> (Klick 3).</div>` : '';
   const table = top ? `<h2>Freigegebene Leads</h2><table><tr><th>Firma</th><th>Ansprechpartner</th><th>Qualität</th></tr>${top}</table>` : '';
-  const link = (o.airtableUrl ? `<p class="links"><a href="${esc(o.airtableUrl)}" target="_blank" rel="noopener">Alle Leads und E-Mails in Airtable öffnen</a></p>` : '')
+  const link = (o.airtableUrl ? `<p class="links"><a href="${esc(o.airtableUrl)}">Alle Leads und E-Mails in Airtable öffnen</a></p>` : '')
     + (o.dashboardUrl ? `<p class="links"><a href="${esc(o.dashboardUrl)}">Zum Dashboard</a></p>` : '');
   return page(headline, `${sub}<ol class="steps">${steps}</ol>${next}${table}${link}`, refresh, o.campaign.name);
 }

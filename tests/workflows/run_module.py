@@ -23,6 +23,7 @@ from lib import FIX, Mock, Stack, fixture  # noqa: E402
 
 SIGNING_SECRET = "test_signing_secret_not_real"  # from tests/test.env (test-only value)
 PROSPECT = "prospect.test@nexsale-demo.test"
+AUTH = ("admin", "test-control-password-1")  # Control Center login from tests/test.env (test-only value)
 
 
 def iso(dt):
@@ -197,10 +198,11 @@ def t01_campaign_setup(stack, mock):
     c.ok(waiting.startswith(stack.base + "/"), "the form page follows its run on its own address (no cross-site status check)", waiting)
     c.ok(len(mock.table("Campaigns")) == 1 and mock.table("Campaigns")[0]["max_leads"] == 10, "empty 'Max leads' (sent as 0 by n8n) → test-mode default 10, campaign created", mock.table("Campaigns"))
     cid = mock.table("Campaigns")[0]["id"] if mock.table("Campaigns") else ""
-    page = requests.get(f"{stack.base}/webhook/campaign-status", params={"id": cid}, timeout=30)
+    c.ok(requests.get(f"{stack.base}/webhook/campaign-status", params={"id": cid}, timeout=30).status_code == 401, "status page needs the login (401 without)")
+    page = requests.get(f"{stack.base}/webhook/campaign-status", params={"id": cid}, auth=AUTH, timeout=30)
     c.ok(page.status_code == 200 and "text/html" in page.headers.get("content-type", "") and "Cleaning companies Berlin" in page.text and "Kampagne angelegt" in page.text,
          "status page shows the campaign and its steps", (page.status_code, page.text[:120]))
-    c.ok("Kampagne nicht gefunden" in requests.get(f"{stack.base}/webhook/campaign-status", params={"id": "recDOESNOTEXIST"}, timeout=30).text, "unknown campaign → clear message")
+    c.ok("Kampagne nicht gefunden" in requests.get(f"{stack.base}/webhook/campaign-status", params={"id": "recDOESNOTEXIST"}, auth=AUTH, timeout=30).text, "unknown campaign → clear message")
     return c
 
 
@@ -676,7 +678,10 @@ def t08b_dashboard(stack, mock):
     mock.seed("Replies", [{"key": "r", "lead": [lead["id"]], "lead_record_id": lead["id"], "category": "Interested", "received_at": iso(now()), "summary": "Möchte einen Termin <script>"}])
     mock.seed("Meetings", [{"key": "m", "lead": [lead["id"]], "lead_record_id": lead["id"], "status": "Booked", "start_time": iso(now() + timedelta(days=2))}])
     t0 = time.time()
-    page = requests.get(f"{stack.base}/webhook/dashboard", timeout=60)
+    no_login = requests.get(f"{stack.base}/webhook/dashboard", timeout=60)
+    c.ok(no_login.status_code == 401 and "Basic" in no_login.headers.get("www-authenticate", ""), "dashboard needs the login (401 + Basic challenge without)", no_login.status_code)
+    c.ok(requests.get(f"{stack.base}/webhook/dashboard", auth=("admin", "wrong"), timeout=60).status_code == 401, "wrong password → 401")
+    page = requests.get(f"{stack.base}/webhook/dashboard", auth=AUTH, timeout=60)
     c.ok(page.status_code == 200 and "text/html" in page.headers.get("content-type", ""), "dashboard answers with an HTML page", page.status_code)
     c.ok(time.time() - t0 < 10, "loads in under 10 seconds", round(time.time() - t0, 1))
     h = page.text
@@ -684,7 +689,91 @@ def t08b_dashboard(stack, mock):
     c.ok("Glanzwerk" in h and "Anstehende Termine" in h, "campaign row, recent reply and upcoming meeting shown")
     c.ok("&lt;script&gt;" in h and "<script>" not in h, "data from replies is escaped")
     cid = client_id(mock)
-    c.ok(requests.get(f"{stack.base}/webhook/dashboard", params={"client": cid}, timeout=60).status_code == 200, "client filter works")
+    c.ok(requests.get(f"{stack.base}/webhook/dashboard", params={"client": cid}, auth=AUTH, timeout=60).status_code == 200, "client filter works")
+    return c
+
+
+def t16_control_center(stack, mock):
+    import requests
+    c = Check("16 Control Center: login, clients, campaign create/launch/pause, leads, replies")
+    base = f"{stack.base}/webhook"
+    act = lambda form: requests.post(f"{base}/app-action", data=form, auth=AUTH, allow_redirects=False, timeout=60)  # noqa: E731
+    mock.reset()
+    # login
+    r = requests.get(f"{base}/app", timeout=30)
+    c.ok(r.status_code == 401 and "Basic" in r.headers.get("www-authenticate", ""), "no login → 401 with a Basic login prompt", r.status_code)
+    c.ok(requests.post(f"{base}/app-action", data={"action": "campaign_stop", "id": "x"}, timeout=30).status_code == 401, "actions without login → 401")
+    r = requests.get(f"{base}/app", auth=AUTH, timeout=60)
+    c.ok(r.status_code == 200 and "<h1>Übersicht</h1>" in r.text and "Testmodus" in r.text, "overview page after login", r.status_code)
+    for p in ("campaigns", "new-campaign", "replies", "meetings", "clients", "system"):
+        rr = requests.get(f"{base}/app", params={"p": p}, auth=AUTH, timeout=60)
+        c.ok(rr.status_code == 200 and "<h1>" in rr.text, f"page {p} renders", rr.status_code)
+    # client: create, then validation error
+    r = act({"action": "client_save", "id": "", "name": "Müller Facility GmbH", "sender_name": "Tom Müller", "sender_title": "Geschäftsführer", "sender_company": "Müller Facility GmbH",
+             "sender_company_footer": "Müller Facility GmbH · Musterstr. 1, 10115 Berlin", "offer": "Wir reinigen Büros und Praxen in Berlin.", "target_positive_replies": "20", "target_meetings": "4"})
+    clients = mock.table("Clients")
+    c.ok(r.status_code == 303 and "p=clients" in r.headers.get("location", "") and any(k["name"] == "Müller Facility GmbH" for k in clients), "new client saved → back to the client list", (r.status_code, r.headers.get("location")))
+    r = act({"action": "client_save", "id": "", "name": "Ohne Angebot", "sender_name": "X", "sender_company_footer": "Y"})
+    c.ok(r.status_code == 303 and "err=1" in r.headers.get("location", "") and not any(k["name"] == "Ohne Angebot" for k in mock.table("Clients")), "invalid client is refused with a message")
+    # campaign: create (click 1) → sourcing chain runs
+    resp, ex, st = run(stack, lambda: act({"action": "campaign_create", "name": "CC Test", "client": "Real Service GmbH", "industry": "Reinigungsunternehmen", "city": "Berlin",
+                                           "company_size": "10-49", "target_role": "Geschäftsführer", "max_leads": "10"}), expect=["16_control_center"] + CHAIN, timeout=200)
+    camps = mock.table("Campaigns")
+    camp = camps[0] if camps else {}
+    c.ok(resp.status_code == 303 and f"id={camp.get('id')}" in resp.headers.get("location", ""), "campaign created → redirected to its page", resp.headers.get("location"))
+    c.ok(camp.get("client_record_id") == client_id(mock) and len(mock.state()["google_calls"]) == 1, "for the chosen client, Google search started", (camp.get("client_record_id"), len(mock.state()["google_calls"])))
+    for _ in range(60):
+        if next((x for x in mock.table("Campaigns") if x["id"] == camp["id"]), {}).get("status") == "Ready":
+            break
+        time.sleep(1)
+    page = requests.get(f"{base}/app", params={"p": "campaign", "id": camp["id"]}, auth=AUTH, timeout=60).text
+    c.ok("Approve and launch" in page and "Glanzwerk" in page, "campaign page: leads and the launch button", page[:200] if "Glanzwerk" not in page else "")
+    # leads: exclude one, rewrite another
+    approved = [l for l in mock.table("Leads") if l["campaign_record_id"] == camp["id"] and l["status"] == "Approved"]
+    ex_lead, rw_lead = approved[0], approved[1]
+    act({"action": "lead_exclude", "id": ex_lead["id"]})
+    c.ok(next(l for l in mock.table("Leads") if l["id"] == ex_lead["id"])["status"] == "Rejected", "lead excluded → Rejected")
+    old_ids = {e["id"] for e in mock.table("Emails") if e["lead_record_id"] == rw_lead["id"]}
+    run(stack, lambda: act({"action": "lead_rewrite", "id": rw_lead["id"]}), expect=["16_control_center", "04_ai_emails"], timeout=120)
+    new = [e for e in mock.table("Emails") if e["lead_record_id"] == rw_lead["id"]]
+    c.ok(len(new) == 4 and not ({e["id"] for e in new} & old_ids) and next(l for l in mock.table("Leads") if l["id"] == rw_lead["id"])["status"] == "Approved",
+         "rewrite: old emails deleted, 4 new ones, lead Approved again", (len(new), len(old_ids)))
+    # launch (click 3) through the same logic as the Slack button
+    run(stack, lambda: act({"action": "campaign_launch", "id": camp["id"]}), expect=["16_control_center", "11_slack_actions", "05_campaign_launch", "06_sending"], timeout=150)
+    camp = next(x for x in mock.table("Campaigns") if x["id"] == camp["id"])
+    sent = [g for g in mock.state()["gmail"] if g["subject"].startswith("[TEST]") and "Campaign ready" not in g["subject"]]
+    c.ok(camp["status"] == "Live" and sent and all(g["to"] == PROSPECT for g in sent), "launch from the Control Center → Live, first [TEST] emails only to the test inbox", (camp["status"], len(sent)))
+    c.ok(not any(e for e in mock.table("Emails") if e["lead_record_id"] == ex_lead["id"] and e["status"] == "Sent"), "the excluded lead got nothing")
+    c.ok(any("Approve and launch by Control Center" in m["text"] for m in mock.state()["slack"]), "Slack shows who launched it")
+    # pause → nothing is sent; resume → Live
+    act({"action": "campaign_pause", "id": camp["id"]})
+    c.ok(next(x for x in mock.table("Campaigns") if x["id"] == camp["id"])["status"] == "Paused", "pause → Paused")
+    before = len(mock.state()["gmail"])
+    lead = next(l for l in mock.table("Leads") if l["campaign_record_id"] == camp["id"] and l["status"] == "Contacted")
+    mock_patch(mock, "Leads", lead["id"], {"next_send_at": iso(now() - timedelta(seconds=5))})
+    run(stack, lambda: stack.webhook("sending-run", {}), expect=["06_sending"])
+    c.ok(len(mock.state()["gmail"]) == before, "a paused campaign sends nothing", len(mock.state()["gmail"]) - before)
+    act({"action": "campaign_resume", "id": camp["id"]})
+    c.ok(next(x for x in mock.table("Campaigns") if x["id"] == camp["id"])["status"] == "Live", "resume → Live")
+    # replies: a question waits for approval; approve with edited text
+    thread = next(e["thread_id"] for e in mock.table("Emails") if e["lead_record_id"] == lead["id"] and e["status"] == "Sent")
+    run(stack, lambda: post_reply(stack, "question_01", thread), expect=["07_replies"])
+    rep = next(x for x in mock.table("Replies") if x["lead_record_id"] == lead["id"])
+    page = requests.get(f"{base}/app", params={"p": "replies"}, auth=AUTH, timeout=60).text
+    c.ok('name="action" value="reply_approve"' in page and rep["id"] in page, "the question waits on the replies page")
+    before = len(mock.state()["gmail"])
+    run(stack, lambda: act({"action": "reply_approve", "id": rep["id"], "text": "Guten Tag,\n\ngern erkläre ich Ihnen den Ablauf in 15 Minuten. Passt Ihnen Dienstag?\n\nMit freundlichen Grüßen\nLaura Schmidt"}),
+        expect=["16_control_center", "11_slack_actions", "13_send_email"], timeout=120)
+    mails = mock.state()["gmail"][before:]
+    rep = next(x for x in mock.table("Replies") if x["id"] == rep["id"])
+    c.ok(len(mails) == 1 and "gern erkläre ich Ihnen den Ablauf" in mails[0]["body"] and mails[0]["threadId"] == thread and rep.get("reply_approved") is True,
+         "approve with edited text → exactly that text sent in the thread, reply marked answered", (len(mails), rep.get("reply_approved")))
+    r = act({"action": "reply_approve", "id": rep["id"], "text": "nochmal"})
+    c.ok("err=1" in r.headers.get("location", ""), "approving twice is refused (never sent twice)")
+    # security: the internal entry needs the key
+    before_status = next(x for x in mock.table("Campaigns") if x["id"] == camp["id"])["status"]
+    run(stack, lambda: stack.webhook("control-action", {"action": "approve_launch", "recordId": camp["id"]}), expect=["11_slack_actions"])
+    c.ok(next(x for x in mock.table("Campaigns") if x["id"] == camp["id"])["status"] == before_status, "control-action without the key does nothing")
     return c
 
 
@@ -808,7 +897,7 @@ def t12_delete(stack, mock):
 
 SCENARIOS = {"00": t00_error_handler, "01": t01_campaign_setup, "02": t02_lead_sourcing, "03": t03_enrichment, "04": t04_ai_emails, "05": t05_launch,
              "06": t06_sending, "07": t07_replies, "07n": t07_newsletter, "07w": t07w_withdrawal, "07b": t07b_calendly, "07c": t07c_reminders, "07d": t07d_calendly_poll, "08": t08_reporting, "08b": t08b_dashboard, "09": t09_inbound,
-             "10": t10_crm, "11": t11_slack, "12": t12_delete}
+             "10": t10_crm, "11": t11_slack, "12": t12_delete, "16": t16_control_center}
 
 
 def run_scenarios(keys, log=print):

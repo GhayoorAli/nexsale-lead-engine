@@ -122,3 +122,10 @@ Live tests are blocked on accounts and keys (docs/blockers.md).
 - Full run on the latest version: unit 394/394 (+1 dashboard money test), pytest 14/14, workflow 19/19, integration /
   failure / safety 16/16, end-to-end 2/2 with 3 clicks. One flaky integration case (I6, 1 failure in 4 runs) traced to
   the test's quiet-period wait returning between two Module 4 runs; the test now waits explicitly for "Campaign ready".
+
+## 2026-11-15 – Control Center
+- Workflow 16 + `code/controlCenter.js`: login, overview, clients, campaigns (create/launch/pause/resume/stop), leads
+  (exclude, rewrite), replies (approve with edits, reject, sort), meetings, tasks, system. 20 unit tests, workflow test 16
+  (26 checks). Slack actions reused through 11's internal entry.
+- Security: ngrok traffic policy (only Slack clicks pass), login on dashboard and status page. Verified live: 401 without
+  login, 200 with, 403 from the internet.

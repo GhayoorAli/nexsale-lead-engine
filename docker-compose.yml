@@ -60,7 +60,10 @@ services:
     image: ngrok/ngrok:3
     profiles: ["tunnel"]
     restart: unless-stopped
-    command: ["http", "n8n:5678", "--url=https://${NGROK_DOMAIN:-missing.ngrok-free.app}", "--log=stdout"]
+    # traffic policy: only /webhook/slack-actions (and /webhook/calendly) are reachable from the internet
+    command: ["http", "n8n:5678", "--url=https://${NGROK_DOMAIN:-missing.ngrok-free.app}", "--traffic-policy-file=/etc/ngrok/policy.yml", "--log=stdout"]
+    volumes:
+      - ./ngrok/policy.yml:/etc/ngrok/policy.yml:ro
     environment:
       NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
     depends_on:

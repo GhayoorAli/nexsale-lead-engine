@@ -320,7 +320,7 @@ def ai_answer(prompt_id, system, user):
         last = contact.split()[-1] if contact and contact.lower() not in ("unbekannt", "null", "") else ""
         greet = f"Guten Tag {('Herr' if not last.endswith('a') else 'Frau')} {last}," if last else "Guten Tag,"
         emails = [
-            {"step": 1, "subject": f"Unterhaltsreinigung bei {company[:30]}", "subject_alt": f"Neue Büro-Kunden in {city}?",
+            {"step": 1, "subject": f"Unterhaltsreinigung bei {company.split()[0][:25]}", "subject_alt": f"Neue Büro-Kunden in {city}?",
              "body": f"{greet}\n\nauf Ihrer Website habe ich gesehen, dass {company} Büros und Arztpraxen in {city} betreut. Wir helfen Reinigungsfirmen, planbar neue Gewerbekunden zu gewinnen, ohne Kaltakquise am Telefon.\n\nHätten Sie nächste Woche 15 Minuten für ein kurzes Gespräch?\n\nViele Grüße\n{sender}"},
             {"step": 2, "subject": "Aufträge ohne Ausschreibungsstress", "body": f"{greet}\n\nviele Reinigungsfirmen hängen an wenigen Großkunden. Fällt einer weg, fehlt sofort Umsatz. Wir sorgen dafür, dass regelmäßig neue Anfragen von passenden Firmen kommen.\n\nWäre ein kurzes Telefonat dazu interessant?\n\nViele Grüße\n{sender}"},
             {"step": 3, "subject": "Ein Beispiel aus der Praxis", "body": f"{greet}\n\nso läuft es konkret: Wir suchen Hausverwaltungen und Praxen in {city}, schreiben sie persönlich an und geben nur echte Interessenten an Sie weiter. Sie führen dann nur noch das Erstgespräch.\n\nPasst ein Telefonat von 15 Minuten?\n\nViele Grüße\n{sender}"},

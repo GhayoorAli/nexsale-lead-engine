@@ -1,0 +1,12 @@
+# Only Slack's button clicks (and Calendly webhooks on a paid plan) may reach n8n from the internet.
+# Everything else – the n8n editor, the Control Center, the dashboard, forms – is local only (http://localhost:5678).
+on_http_request:
+  - expressions:
+      - "!(req.url.path in ['/webhook/slack-actions', '/webhook/calendly'])"
+    actions:
+      - type: custom-response
+        config:
+          status_code: 403
+          content: "Forbidden: this address only accepts Slack button clicks."
+          headers:
+            content-type: text/plain

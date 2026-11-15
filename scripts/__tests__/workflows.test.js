@@ -7,7 +7,7 @@ const { buildAll } = require('../build_workflows');
 
 const list = load();
 const EXPECTED = ['00_error_handler', '01_campaign_setup', '01b_campaign_status', '02_lead_sourcing', '03_enrichment', '04_ai_emails', '05_campaign_launch', '06_sending', '07_replies',
-  '07a_gmail_inbox', '07b_calendly', '07c_reminders', '07d_calendly_poll', '08_reporting', '08b_dashboard', '09_inbound_leads', '10_crm_sync', '11_slack_actions', '12_delete_lead', '13_send_email', '14_ai_call', '15_slack_notify'];
+  '07a_gmail_inbox', '07b_calendly', '07c_reminders', '07d_calendly_poll', '08_reporting', '08b_dashboard', '09_inbound_leads', '10_crm_sync', '11_slack_actions', '12_delete_lead', '13_send_email', '14_ai_call', '15_slack_notify', '16_control_center'];
 
 test('one workflow file per module, named as in PLAN.md', () => {
   expect(list.map((x) => x.file.replace('.json', '')).sort()).toEqual(EXPECTED.slice().sort());

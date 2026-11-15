@@ -218,3 +218,14 @@ Choices that PLAN.md / CLAUDE.md left open, or where the plan had to be adapted.
     extraction already covers Impressum, mailto: links, the contact page, the homepage and a company's own free-mail
     address; the remaining live rejections were checked by hand and publish no usable email. In production, a paid
     finder or Nexsale's own lead database would be the place to add this.
+53. **Control Center instead of editing Airtable.** User's decision: one dashboard to control the whole process. Workflow
+    `16_control_center` serves a password-protected web app (GET /webhook/app, POST /webhook/app-action; HTTP Basic with
+    `CONTROL_USER` / `CONTROL_PASSWORD`, constant-time compare; empty password = locked). Pages and actions are pure,
+    unit-tested functions (`code/controlCenter.js`): overview with to-dos, clients (add/edit with validation), campaigns
+    (create, launch, pause/resume/stop with status rules), leads (exclude; rewrite emails before launch – Module 4 now also
+    drafts for Ready campaigns), replies (edit + approve, reject, sort; never twice), meetings (held/no-show), tasks, system.
+    Actions Slack also offers go through `11_slack_actions` via a second, internal entry (`control-action`, password key),
+    so Slack and the Control Center always behave identically. Built in n8n (no extra server, same tests and deploy).
+54. **Nothing but Slack clicks is reachable from the internet.** Found while planning 53: the dashboard and status page were
+    public through the ngrok address. `ngrok/policy.yml` (traffic policy) answers every path except
+    `/webhook/slack-actions` and `/webhook/calendly` with 403; the dashboard and status page also need the login now.

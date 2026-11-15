@@ -188,7 +188,7 @@
             },
             {
               "name": "filterByFormula",
-              "value": "={{ \"{status}='Sourcing'\" }}"
+              "value": "={{ \"OR({status}='Sourcing',{status}='Ready')\" }}"
             }
           ]
         }
