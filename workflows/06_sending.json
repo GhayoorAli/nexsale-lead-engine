@@ -1,0 +1,1519 @@
+{
+  "id": "NxsWf06Sending00",
+  "name": "Nexsale 06 – Sending and follow-ups",
+  "active": false,
+  "versionId": "4b9701a3-ee0e-44d8-84fb-5620f6f030c7",
+  "nodes": [
+    {
+      "id": "03730a7d-45e3-4165-8a72-8dd6ddb83fb9",
+      "name": "Every 15 min (business hours)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 8-16 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a39629ee-2c8c-46d2-819d-2a6ec479e1b5",
+      "name": "Every minute (demo mode)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "* * * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "74e0b85b-977b-4d6e-8e14-35484e735390",
+      "name": "Run now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        360
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sending-run",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "387a3ef5-021e-4fac-87f5-c5b549ac5c8c"
+    },
+    {
+      "id": "5a73634a-fbb8-464e-8a92-ee04a72f0aa9",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.config = (function () {\n  const module = { exports: {} };\n/**\n * config.js – builds the runtime config for every workflow from environment variables.\n * Used by the first \"Config\" Code node in each workflow. Secrets are NOT copied into\n * the output (execution data is stored in n8n); HTTP nodes read tokens from $env directly.\n */\nfunction bool(v, dflt) {\n  if (v === undefined || v === null || v === '') return dflt;\n  return String(v).trim().toLowerCase() === 'true';\n}\n\nfunction parseList(v) {\n  return String(v || '')\n    .split(/[,;\\s]+/)\n    .map((s) => s.trim().toLowerCase())\n    .filter(Boolean);\n}\n\nfunction parseLimit(v, demoMode) {\n  if (v === undefined || v === null || v === '') return demoMode ? 10 : null;\n  if (String(v).trim().toLowerCase() === 'off') return null;\n  const n = parseInt(v, 10);\n  return Number.isFinite(n) && n > 0 ? n : 10;\n}\n\nfunction trimSlash(u) {\n  return String(u || '').replace(/\\/+$/, '');\n}\n\nfunction buildConfig(env) {\n  env = env || {};\n  // Safe defaults: demo mode ON unless explicitly \"false\".\n  const demoMode = bool(env.DEMO_MODE, true);\n  const mock = bool(env.MOCK_EXTERNAL, false);\n  const mockBase = trimSlash(env.MOCK_BASE_URL || 'http://host.docker.internal:8787');\n  const real = {\n    airtable: 'https://api.airtable.com/v0',\n    googlePlaces: 'https://places.googleapis.com/v1',\n    openai: 'https://api.openai.com/v1',\n    anthropic: 'https://api.anthropic.com/v1',\n    slack: 'https://slack.com/api',\n    gmail: 'https://gmail.googleapis.com/gmail/v1',\n    hubspot: 'https://api.hubapi.com',\n    dns: 'https://dns.google',\n    web: '',\n    calendly: 'https://api.calendly.com',\n  };\n  const mocked = {\n    airtable: mockBase + '/airtable/v0',\n    googlePlaces: mockBase + '/google/v1',\n    openai: mockBase + '/ai/openai/v1',\n    anthropic: mockBase + '/ai/anthropic/v1',\n    slack: mockBase + '/slack/api',\n    gmail: mockBase + '/gmail/v1',\n    hubspot: mockBase + '/hubspot',\n    dns: mockBase + '/dns',\n    web: mockBase + '/web',\n    calendly: mockBase + '/calendly',\n  };\n  const urls = mock ? mocked : real;\n  const aiProvider = String(env.AI_PROVIDER || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : 'openai';\n  const allowlist = parseList(env.TEST_RECIPIENT_ALLOWLIST);\n  const conf = parseFloat(env.AUTO_REPLY_MIN_CONFIDENCE);\n  return {\n    demoMode,\n    mock,\n    allowRealSending: !demoMode && bool(env.ALLOW_REAL_SENDING, false),\n    // DEMO_MODE sends from an every-minute ticker; the test stack turns it off and drives sends by webhook\n    demoTicker: !bool(env.DISABLE_DEMO_TICKER, false),\n    // cap per run so one run always finishes before the next tick (no overlapping runs)\n    maxSendsPerRun: demoMode ? 6 : 5,\n    testLeadLimit: parseLimit(env.TEST_LEAD_LIMIT, demoMode),\n    allowlist,\n    testProspectEmail: String(env.TEST_PROSPECT_EMAIL || '').trim().toLowerCase(),\n    senderEmail: String(env.SENDER_EMAIL || '').trim().toLowerCase(),\n    autoReplyMinConfidence: Number.isFinite(conf) ? conf : 0.85,\n    unsureConfidence: 0.7,\n    timezone: 'Europe/Berlin',\n    airtableBaseId: env.AIRTABLE_BASE_ID || '',\n    airtableUrl: urls.airtable + '/' + (env.AIRTABLE_BASE_ID || ''),\n    googlePlacesUrl: urls.googlePlaces,\n    aiProvider,\n    aiModel: env.AI_MODEL || (aiProvider === 'anthropic' ? 'claude-haiku-5-5' : 'gpt-4o-mini'),\n    aiUrl: aiProvider === 'anthropic' ? urls.anthropic + '/messages' : urls.openai + '/chat/completions',\n    slackApiUrl: urls.slack,\n    slackChannel: env.SLACK_CHANNEL || '#leads',\n    gmailUrl: urls.gmail,\n    hubspotUrl: urls.hubspot,\n    dnsUrl: urls.dns,\n    webProxyUrl: urls.web,\n    calendlyLink: env.CALENDLY_LINK || '',\n    calendlyApiUrl: urls.calendly,\n    n8nBaseUrl: trimSlash(env.WEBHOOK_URL || 'http://localhost:5678'),\n    n8nInternalUrl: trimSlash(env.N8N_INTERNAL_URL || 'http://localhost:5678'),\n    interfaceUrl: env.AIRTABLE_INTERFACE_URL || (env.AIRTABLE_BASE_ID ? 'https://airtable.com/' + env.AIRTABLE_BASE_ID : ''),\n    googleCostPerRequestEur: 0.032,\n  };\n}\n\n/** URL to fetch a company web page; in mock mode served by the mock server. */\nfunction webUrl(cfg, domain, path) {\n  path = path || '/';\n  if (cfg.webProxyUrl) return cfg.webProxyUrl + '/' + domain + path;\n  return 'https://' + domain + path;\n}\n\nconst configApi = { buildConfig, webUrl, parseList, parseLimit };\nif (typeof module !== 'undefined' && module.exports) module.exports = configApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst trigger = $input.all().map((i) => i.json);\n// test stack only: schedules are switched off so tests drive every module through its webhook\nconst scheduled = trigger.length > 0 && trigger[0] && trigger[0]['Readable date'] !== undefined;\nif (scheduled && String($env.DISABLE_SCHEDULES).toLowerCase() === 'true') return [];\nreturn [{ json: { cfg: M.config.buildConfig($env), trigger, startedAt: new Date().toISOString() } }];\n"
+      },
+      "notes": "Builds runtime config from env (no secrets in output)."
+    },
+    {
+      "id": "4e9b537f-95a8-4249-8d81-a234827a0b77",
+      "name": "Bounce check?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "38b54745-6056-40f9-81ee-799cbedbeedb",
+              "leftValue": "={{ $('Daily 17:30').isExecuted || $('Bounce check now').isExecuted }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "eb4aad82-66c5-4e3e-80ca-ee28efd19464",
+      "name": "Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.schedule = (function () {\n  const module = { exports: {} };\n/**\n * schedule.js – send timing in Europe/Berlin without external libraries.\n * Steps 1–4 go out on day 0, 3, 7, 14 counted from the first send.\n * Real mode: only Mon–Fri 08:00–17:00 Berlin time (weekends skipped).\n * DEMO_MODE: days become minutes and the send window is ignored.\n */\nconst STEP_OFFSETS = { 1: 0, 2: 3, 3: 7, 4: 14 };\nconst TZ = 'Europe/Berlin';\nconst WINDOW = { startHour: 8, endHour: 17 };\nconst WEEKDAYS = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };\n\nfunction berlinParts(date) {\n  const d = new Date(date);\n  const fmt = new Intl.DateTimeFormat('en-GB', {\n    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short', hourCycle: 'h23',\n  });\n  const p = {};\n  fmt.formatToParts(d).forEach((x) => (p[x.type] = x.value));\n  return {\n    year: +p.year, month: +p.month, day: +p.day, hour: +p.hour, minute: +p.minute, second: +p.second, weekday: WEEKDAYS[p.weekday],\n  };\n}\n\n/** Converts a Berlin wall-clock time to a UTC Date (handles DST). */\nfunction berlinToUtc(year, month, day, hour, minute) {\n  let guess = Date.UTC(year, month - 1, day, hour, minute || 0);\n  for (let i = 0; i < 2; i++) {\n    const p = berlinParts(guess);\n    const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);\n    const offset = asUtc - guess;\n    guess = Date.UTC(year, month - 1, day, hour, minute || 0) - offset;\n  }\n  return new Date(guess);\n}\n\nfunction isSendWindow(date) {\n  const p = berlinParts(date);\n  return p.weekday <= 5 && p.hour >= WINDOW.startHour && p.hour < WINDOW.endHour;\n}\n\n/** The given time if it is inside the send window, else the next weekday 08:00 Berlin. */\nfunction nextSendSlot(date, opts) {\n  const d = new Date(date);\n  if (opts && opts.demoMode) return d;\n  if (isSendWindow(d)) return d;\n  let p = berlinParts(d);\n  // start from today 08:00 if before the window on a weekday, else move day by day\n  let cand = berlinToUtc(p.year, p.month, p.day, WINDOW.startHour, 0);\n  if (cand <= d) {\n    const next = new Date(Date.UTC(p.year, p.month - 1, p.day + 1, 12));\n    p = berlinParts(next);\n    cand = berlinToUtc(p.year, p.month, p.day, WINDOW.startHour, 0);\n  }\n  for (let i = 0; i < 7 && berlinParts(cand).weekday > 5; i++) {\n    const q = berlinParts(cand);\n    const next = new Date(Date.UTC(q.year, q.month - 1, q.day + 1, 12));\n    const r = berlinParts(next);\n    cand = berlinToUtc(r.year, r.month, r.day, WINDOW.startHour, 0);\n  }\n  return cand;\n}\n\n/** When step `step` is due, counted from the first send. */\nfunction sendAtForStep(firstSentAt, step, opts) {\n  const offset = STEP_OFFSETS[step];\n  if (offset === undefined) throw new Error('unknown step ' + step);\n  const first = new Date(firstSentAt);\n  if (opts && opts.demoMode) return new Date(first.getTime() + offset * 60 * 1000);\n  const p = berlinParts(first);\n  const target = berlinToUtc(p.year, p.month, p.day + offset, p.hour, p.minute);\n  return nextSendSlot(target, opts);\n}\n\n/** Wait between two sends: 60–180 s real, 2–5 s demo, 0 when mocked. */\nfunction randomDelaySeconds(opts, rand) {\n  const r = typeof rand === 'number' ? rand : Math.random();\n  if (opts && opts.mock) return 0;\n  if (opts && opts.demoMode) return 2 + Math.round(r * 3);\n  return 60 + Math.round(r * 120);\n}\n\n/** Berlin calendar date \"YYYY-MM-DD\" (for daily counters). */\nfunction berlinDate(date) {\n  const p = berlinParts(date);\n  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;\n}\n\nfunction addDays(date, days) {\n  return new Date(new Date(date).getTime() + days * 86400000);\n}\n\nconst scheduleApi = { STEP_OFFSETS, berlinParts, berlinToUtc, isSendWindow, nextSendSlot, sendAtForStep, randomDelaySeconds, berlinDate, addDays };\nif (typeof module !== 'undefined' && module.exports) module.exports = scheduleApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst cfg = $('Config').first().json.cfg;\nconst demoTick = $('Every minute (demo mode)').isExecuted;\nconst realTick = $('Every 15 min (business hours)').isExecuted;\nconst hook = !demoTick && !realTick;\nif (demoTick && !(cfg.demoMode && cfg.demoTicker)) return [];  // the demo ticker runs only in DEMO_MODE\nif (realTick && cfg.demoMode) return [];                       // the business-hours ticker is idle in DEMO_MODE\nif (hook && cfg.demoMode && cfg.demoTicker) return [];         // ticker active: a webhook run would overlap it\nif (!cfg.demoMode && !M.schedule.isSendWindow(new Date())) return [];\nreturn [{ json: { run: true } }];\n"
+      },
+      "notes": "Real mode: Mon–Fri 08:00–17:00 Berlin only. DEMO_MODE: every minute."
+    },
+    {
+      "id": "23bb9cfa-a00b-42cd-855b-c3831a07a27e",
+      "name": "Live campaigns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{status}='Live'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Campaigns"
+    },
+    {
+      "id": "a3f4ca3f-719d-4959-85fd-c9711faa3b93",
+      "name": "Any live?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst camps = M.airtable.fromItems($('Live campaigns').all());\nreturn camps.length ? [{ json: { ids: camps.map((c) => c.id) } }] : [];\n"
+      }
+    },
+    {
+      "id": "b1006246-ffe7-4d41-8762-f830027acfef",
+      "name": "Sendable leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"AND(OR({status}='Approved',{status}='Contacted'),NOT({sequence_finished}))\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Leads"
+    },
+    {
+      "id": "a9378517-7252-4f17-8902-1111ca80b2e6",
+      "name": "Emails of live campaigns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Emails",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ 'OR(' + $('Any live?').first().json.ids.map((id) => \"{campaign_record_id}='\" + id + \"'\").join(',') + ')' }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Emails"
+    },
+    {
+      "id": "c55abdad-5a77-4f6c-8546-703ed120dd10",
+      "name": "Replies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Replies",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 3,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Replies"
+    },
+    {
+      "id": "14719c15-c5a7-4bee-8c1d-bea7e876bdbf",
+      "name": "Blocklist",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Blocklist",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Blocklist"
+    },
+    {
+      "id": "266b48f3-5ab7-4353-8700-4c98c76b1de3",
+      "name": "Clients",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Clients",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Clients"
+    },
+    {
+      "id": "7817961a-f4d2-4bde-88cb-7e6bd106e02c",
+      "name": "Select due emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\nM.sending = (function () {\n  const module = { exports: {} };\n/**\n * sending.js – Module 6: which leads are due, what to send, and the state after a send.\n * Uses schedule.js and guard.js (passed in) so it runs in Jest and in n8n.\n */\nconst SENDABLE = ['Approved', 'Contacted'];\nconst STOPPED = ['Replied', 'Interested', 'Later', 'Not interested', 'Unsubscribed', 'Bounced', 'Meeting booked', 'Meeting held', 'No-show', 'Needs review'];\n\nfunction linkId(v) {\n  return Array.isArray(v) ? v[0] : v;\n}\n\n/**\n * ctx: {leads, campaigns, emails, blocklist, sentTodayByCampaign, replies, now, isBlocked}\n * returns {due:[{lead, email, prevEmail, campaign}], skipped:[{leadId, reason}]}\n */\nfunction selectDue(ctx) {\n  const now = new Date(ctx.now || Date.now());\n  const live = {};\n  (ctx.campaigns || []).forEach((c) => {\n    if (c.status === 'Live') live[c.id] = c;\n  });\n  const repliedLeads = new Set((ctx.replies || []).map((r) => linkId(r.lead)));\n  const sentToday = Object.assign({}, ctx.sentTodayByCampaign || {});\n  const due = [];\n  const skipped = [];\n  (ctx.leads || []).forEach((l) => {\n    const cid = linkId(l.campaign) || l.campaign_record_id;\n    const campaign = live[cid];\n    if (!campaign) return;\n    if (!SENDABLE.includes(l.status)) return;\n    if (l.sequence_finished) return;\n    const step = Number(l.sequence_step) || 0;\n    if (step < 1 || step > 4) return;\n    if (!l.next_send_at || new Date(l.next_send_at) > now) return;\n    if (repliedLeads.has(l.id)) {\n      skipped.push({ leadId: l.id, reason: 'lead has replied' });\n      return;\n    }\n    if (ctx.isBlocked(l.email, ctx.blocklist)) {\n      skipped.push({ leadId: l.id, reason: 'on blocklist' });\n      return;\n    }\n    if (ctx.maxPerRun && due.length >= ctx.maxPerRun) {\n      skipped.push({ leadId: l.id, reason: 'per-run cap reached (next tick)' });\n      return;\n    }\n    const limit = Number(campaign.daily_limit) || 40;\n    if ((sentToday[cid] || 0) >= limit) {\n      skipped.push({ leadId: l.id, reason: 'daily limit reached' });\n      return;\n    }\n    const emails = (ctx.emails || []).filter((e) => linkId(e.lead) === l.id || e.lead_record_id === l.id);\n    const email = emails.find((e) => Number(e.step) === step && e.status === 'Approved');\n    if (!email) {\n      skipped.push({ leadId: l.id, reason: 'no approved email for step ' + step });\n      return;\n    }\n    const prevEmail = emails.filter((e) => e.status === 'Sent').sort((a, b) => Number(b.step) - Number(a.step))[0] || null;\n    sentToday[cid] = (sentToday[cid] || 0) + 1;\n    due.push({ lead: l, email, prevEmail, campaign });\n  });\n  return { due, skipped };\n}\n\n/** The message handed to the guard and the send sub-workflow. */\nfunction buildMessage(item, cfg, client) {\n  const { lead, email, prevEmail } = item;\n  const useB = lead.subject_variant === 'B' && email.subject_b;\n  const bare = (x) => String(x || '').trim().replace(/^(\\s*(\\[TEST\\]|Re:|AW:)\\s*)+/i, '').trim();\n  const subject = Number(email.step) === 1\n    ? bare(useB ? email.subject_b : email.subject)\n    : 'Re: ' + bare(prevEmail ? prevEmail.subject_sent || prevEmail.subject : email.subject);\n  return {\n    to: lead.email,\n    from: cfg.senderEmail,\n    fromName: (client && client.sender_name) || '',\n    subject,\n    body: email.body,\n    threadId: prevEmail ? prevEmail.thread_id : '',\n    inReplyTo: prevEmail ? prevEmail.rfc_message_id || '' : '',\n    leadId: lead.id,\n    emailId: email.id,\n    step: Number(email.step),\n    purpose: 'outreach',\n  };\n}\n\n/** Updates after a successful send. firstSentAt = step-1 sent_at (or now for step 1). */\nfunction afterSend(item, sendResult, now, sched, opts) {\n  const step = Number(item.email.step);\n  const firstSentAt = step === 1 ? now : item.lead.first_sent_at || now;\n  const nextStep = step + 1;\n  const leadFields = { status: 'Contacted', sequence_step: nextStep > 4 ? 4 : nextStep, first_sent_at: firstSentAt };\n  if (step >= 4) {\n    leadFields.sequence_finished = true;\n    leadFields.next_send_at = null;\n  } else {\n    leadFields.next_send_at = sched.sendAtForStep(firstSentAt, nextStep, opts).toISOString();\n  }\n  return {\n    lead: { id: item.lead.id, fields: leadFields },\n    email: {\n      id: item.email.id,\n      fields: {\n        status: 'Sent',\n        sent_at: new Date(now).toISOString(),\n        gmail_message_id: sendResult.id || '',\n        thread_id: sendResult.threadId || '',\n        subject_sent: sendResult.subject || '',\n      },\n    },\n  };\n}\n\n/** Daily safety check: Bounced / sent today; above 3% pauses the campaign. */\nfunction bounceCheck(sentToday, bouncedToday, threshold) {\n  const t = threshold === undefined ? 0.03 : threshold;\n  const rate = sentToday > 0 ? bouncedToday / sentToday : 0;\n  return { rate: Math.round(rate * 10000) / 10000, pause: sentToday > 0 && rate > t };\n}\n\nconst sendingApi = { SENDABLE, STOPPED, selectDue, buildMessage, afterSend, bounceCheck, linkId };\nif (typeof module !== 'undefined' && module.exports) module.exports = sendingApi;\n\n  return module.exports;\n})();\n\nM.guard = (function () {\n  const module = { exports: {} };\n/**\n * guard.js – the safety guard that runs right before every email-sending node.\n * - Blocks the run (throws) if any recipient is not on TEST_RECIPIENT_ALLOWLIST.\n * - An empty allowlist blocks everything in test mode.\n * - DEMO_MODE: rewrites To to TEST_PROSPECT_EMAIL, drops Cc/Bcc, prefixes the subject with [TEST].\n * - Real mode (DEMO_MODE=false) additionally needs ALLOW_REAL_SENDING=true, otherwise it blocks.\n */\nclass GuardError extends Error {\n  constructor(message, details) {\n    super(message);\n    this.name = 'GuardError';\n    this.details = details || {};\n  }\n}\n\nfunction norm(e) {\n  return String(e || '').trim().toLowerCase();\n}\n\nfunction splitAddresses(v) {\n  if (!v) return [];\n  const list = Array.isArray(v) ? v : String(v).split(/[,;]/);\n  return list\n    .map((x) => {\n      const m = String(x).match(/<([^>]+)>/);\n      return norm(m ? m[1] : x);\n    })\n    .filter(Boolean);\n}\n\nfunction guardEmail(msg, cfg) {\n  if (!msg || typeof msg !== 'object') throw new GuardError('Guard: no message');\n  if (!cfg || typeof cfg !== 'object') throw new GuardError('Guard: no config');\n  const original = { to: splitAddresses(msg.to), cc: splitAddresses(msg.cc), bcc: splitAddresses(msg.bcc) };\n  if (!original.to.length) throw new GuardError('Guard: message has no recipient');\n  const out = Object.assign({}, msg);\n  if (cfg.demoMode) {\n    if (!cfg.testProspectEmail) throw new GuardError('Guard: DEMO_MODE is on but TEST_PROSPECT_EMAIL is empty');\n    out.to = cfg.testProspectEmail;\n    out.cc = '';\n    out.bcc = '';\n    const subj = String(msg.subject || '');\n    out.subject = /^\\[TEST\\]/.test(subj) ? subj : '[TEST] ' + subj;\n    out.original_to = original.to.join(', ');\n  } else if (!cfg.allowRealSending) {\n    throw new GuardError('Guard: DEMO_MODE is off but ALLOW_REAL_SENDING is not true – blocked', { to: original.to });\n  }\n  const allow = (cfg.allowlist || []).map(norm);\n  const finalRecipients = [].concat(splitAddresses(out.to), splitAddresses(out.cc), splitAddresses(out.bcc));\n  if (cfg.demoMode || allow.length) {\n    if (!allow.length) throw new GuardError('Guard: TEST_RECIPIENT_ALLOWLIST is empty – every send is blocked');\n    const bad = finalRecipients.filter((r) => !allow.includes(r));\n    if (bad.length) throw new GuardError('Guard: recipient not on allowlist: ' + bad.join(', '), { blocked: bad });\n  }\n  out.guard = { passed: true, demoMode: !!cfg.demoMode, recipients: finalRecipients, checkedAt: new Date().toISOString() };\n  return out;\n}\n\n/** Blocklist check: entries are {value} (email or domain) or plain strings. */\nfunction isBlocked(email, blocklist) {\n  const e = norm(email);\n  if (!e) return false;\n  const domain = e.split('@')[1] || '';\n  return (blocklist || []).some((entry) => {\n    const v = norm(typeof entry === 'string' ? entry : entry && (entry.value || entry.email || entry.domain));\n    if (!v) return false;\n    if (v.includes('@')) return v === e;\n    return v === domain || domain.endsWith('.' + v);\n  });\n}\n\nconst guardApi = { GuardError, guardEmail, isBlocked, splitAddresses };\nif (typeof module !== 'undefined' && module.exports) module.exports = guardApi;\n\n  return module.exports;\n})();\n\nM.schedule = (function () {\n  const module = { exports: {} };\n/**\n * schedule.js – send timing in Europe/Berlin without external libraries.\n * Steps 1–4 go out on day 0, 3, 7, 14 counted from the first send.\n * Real mode: only Mon–Fri 08:00–17:00 Berlin time (weekends skipped).\n * DEMO_MODE: days become minutes and the send window is ignored.\n */\nconst STEP_OFFSETS = { 1: 0, 2: 3, 3: 7, 4: 14 };\nconst TZ = 'Europe/Berlin';\nconst WINDOW = { startHour: 8, endHour: 17 };\nconst WEEKDAYS = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };\n\nfunction berlinParts(date) {\n  const d = new Date(date);\n  const fmt = new Intl.DateTimeFormat('en-GB', {\n    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short', hourCycle: 'h23',\n  });\n  const p = {};\n  fmt.formatToParts(d).forEach((x) => (p[x.type] = x.value));\n  return {\n    year: +p.year, month: +p.month, day: +p.day, hour: +p.hour, minute: +p.minute, second: +p.second, weekday: WEEKDAYS[p.weekday],\n  };\n}\n\n/** Converts a Berlin wall-clock time to a UTC Date (handles DST). */\nfunction berlinToUtc(year, month, day, hour, minute) {\n  let guess = Date.UTC(year, month - 1, day, hour, minute || 0);\n  for (let i = 0; i < 2; i++) {\n    const p = berlinParts(guess);\n    const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);\n    const offset = asUtc - guess;\n    guess = Date.UTC(year, month - 1, day, hour, minute || 0) - offset;\n  }\n  return new Date(guess);\n}\n\nfunction isSendWindow(date) {\n  const p = berlinParts(date);\n  return p.weekday <= 5 && p.hour >= WINDOW.startHour && p.hour < WINDOW.endHour;\n}\n\n/** The given time if it is inside the send window, else the next weekday 08:00 Berlin. */\nfunction nextSendSlot(date, opts) {\n  const d = new Date(date);\n  if (opts && opts.demoMode) return d;\n  if (isSendWindow(d)) return d;\n  let p = berlinParts(d);\n  // start from today 08:00 if before the window on a weekday, else move day by day\n  let cand = berlinToUtc(p.year, p.month, p.day, WINDOW.startHour, 0);\n  if (cand <= d) {\n    const next = new Date(Date.UTC(p.year, p.month - 1, p.day + 1, 12));\n    p = berlinParts(next);\n    cand = berlinToUtc(p.year, p.month, p.day, WINDOW.startHour, 0);\n  }\n  for (let i = 0; i < 7 && berlinParts(cand).weekday > 5; i++) {\n    const q = berlinParts(cand);\n    const next = new Date(Date.UTC(q.year, q.month - 1, q.day + 1, 12));\n    const r = berlinParts(next);\n    cand = berlinToUtc(r.year, r.month, r.day, WINDOW.startHour, 0);\n  }\n  return cand;\n}\n\n/** When step `step` is due, counted from the first send. */\nfunction sendAtForStep(firstSentAt, step, opts) {\n  const offset = STEP_OFFSETS[step];\n  if (offset === undefined) throw new Error('unknown step ' + step);\n  const first = new Date(firstSentAt);\n  if (opts && opts.demoMode) return new Date(first.getTime() + offset * 60 * 1000);\n  const p = berlinParts(first);\n  const target = berlinToUtc(p.year, p.month, p.day + offset, p.hour, p.minute);\n  return nextSendSlot(target, opts);\n}\n\n/** Wait between two sends: 60–180 s real, 2–5 s demo, 0 when mocked. */\nfunction randomDelaySeconds(opts, rand) {\n  const r = typeof rand === 'number' ? rand : Math.random();\n  if (opts && opts.mock) return 0;\n  if (opts && opts.demoMode) return 2 + Math.round(r * 3);\n  return 60 + Math.round(r * 120);\n}\n\n/** Berlin calendar date \"YYYY-MM-DD\" (for daily counters). */\nfunction berlinDate(date) {\n  const p = berlinParts(date);\n  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;\n}\n\nfunction addDays(date, days) {\n  return new Date(new Date(date).getTime() + days * 86400000);\n}\n\nconst scheduleApi = { STEP_OFFSETS, berlinParts, berlinToUtc, isSendWindow, nextSendSlot, sendAtForStep, randomDelaySeconds, berlinDate, addDays };\nif (typeof module !== 'undefined' && module.exports) module.exports = scheduleApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst cfg = $('Config').first().json.cfg;\nconst now = new Date();\nconst today = M.schedule.berlinDate(now);\nconst campaigns = M.airtable.fromItems($('Live campaigns').all());\nconst emails = M.airtable.fromItems($('Emails of live campaigns').all());\nconst sentToday = {};\nemails.filter((e) => e.status === 'Sent' && e.sent_at && M.schedule.berlinDate(e.sent_at) === today).forEach((e) => { sentToday[e.campaign_record_id] = (sentToday[e.campaign_record_id] || 0) + 1; });\nconst r = M.sending.selectDue({\n  leads: M.airtable.fromItems($('Sendable leads').all()), campaigns, emails, replies: M.airtable.fromItems($('Replies').all()),\n  blocklist: M.airtable.fromItems($('Blocklist').all()), sentTodayByCampaign: sentToday, now, isBlocked: M.guard.isBlocked, maxPerRun: cfg.maxSendsPerRun,\n});\nconst clients = M.airtable.fromItems($('Clients').all());\nreturn r.due.map((d) => {\n  const client = clients.find((k) => k.id === d.campaign.client_record_id) || clients[0];\n  const msg = M.sending.buildMessage(d, cfg, client);\n  return { json: { ref: d.email.id, msg: Object.assign({ ref: d.email.id }, msg), item: d, delay: M.schedule.randomDelaySeconds(cfg) } };\n});\n"
+      }
+    },
+    {
+      "id": "539261b1-a10f-43c2-8452-9c9a7c9b8ee9",
+      "name": "One at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2880,
+        0
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "2c97bc54-d97c-48bf-87ca-994590896465",
+      "name": "Re-read email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        180
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Emails/{{ $json.ref }}",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: get Emails"
+    },
+    {
+      "id": "580c792b-833f-4346-88e1-fabcef92a20c",
+      "name": "Still unsent?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3600,
+        180
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1e3d0094-1432-4a22-8219-f2952da68665",
+              "leftValue": "={{ $json.fields && $json.fields.status === 'Approved' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "568747b6-59a0-462a-8deb-2baf17fb32ca",
+      "name": "Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3840,
+        180
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: $('One at a time').first().json.msg }];\n"
+      }
+    },
+    {
+      "id": "d5cf7803-1f2c-4454-8a3e-0678cc8f13e6",
+      "name": "Send (guarded)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4080,
+        180
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf13SendEmail",
+          "mode": "id",
+          "cachedResultName": "13_send_email"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": false
+    },
+    {
+      "id": "f5563fd9-1fc2-445e-8072-62e78b829bdf",
+      "name": "After send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4320,
+        180
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.sending = (function () {\n  const module = { exports: {} };\n/**\n * sending.js – Module 6: which leads are due, what to send, and the state after a send.\n * Uses schedule.js and guard.js (passed in) so it runs in Jest and in n8n.\n */\nconst SENDABLE = ['Approved', 'Contacted'];\nconst STOPPED = ['Replied', 'Interested', 'Later', 'Not interested', 'Unsubscribed', 'Bounced', 'Meeting booked', 'Meeting held', 'No-show', 'Needs review'];\n\nfunction linkId(v) {\n  return Array.isArray(v) ? v[0] : v;\n}\n\n/**\n * ctx: {leads, campaigns, emails, blocklist, sentTodayByCampaign, replies, now, isBlocked}\n * returns {due:[{lead, email, prevEmail, campaign}], skipped:[{leadId, reason}]}\n */\nfunction selectDue(ctx) {\n  const now = new Date(ctx.now || Date.now());\n  const live = {};\n  (ctx.campaigns || []).forEach((c) => {\n    if (c.status === 'Live') live[c.id] = c;\n  });\n  const repliedLeads = new Set((ctx.replies || []).map((r) => linkId(r.lead)));\n  const sentToday = Object.assign({}, ctx.sentTodayByCampaign || {});\n  const due = [];\n  const skipped = [];\n  (ctx.leads || []).forEach((l) => {\n    const cid = linkId(l.campaign) || l.campaign_record_id;\n    const campaign = live[cid];\n    if (!campaign) return;\n    if (!SENDABLE.includes(l.status)) return;\n    if (l.sequence_finished) return;\n    const step = Number(l.sequence_step) || 0;\n    if (step < 1 || step > 4) return;\n    if (!l.next_send_at || new Date(l.next_send_at) > now) return;\n    if (repliedLeads.has(l.id)) {\n      skipped.push({ leadId: l.id, reason: 'lead has replied' });\n      return;\n    }\n    if (ctx.isBlocked(l.email, ctx.blocklist)) {\n      skipped.push({ leadId: l.id, reason: 'on blocklist' });\n      return;\n    }\n    if (ctx.maxPerRun && due.length >= ctx.maxPerRun) {\n      skipped.push({ leadId: l.id, reason: 'per-run cap reached (next tick)' });\n      return;\n    }\n    const limit = Number(campaign.daily_limit) || 40;\n    if ((sentToday[cid] || 0) >= limit) {\n      skipped.push({ leadId: l.id, reason: 'daily limit reached' });\n      return;\n    }\n    const emails = (ctx.emails || []).filter((e) => linkId(e.lead) === l.id || e.lead_record_id === l.id);\n    const email = emails.find((e) => Number(e.step) === step && e.status === 'Approved');\n    if (!email) {\n      skipped.push({ leadId: l.id, reason: 'no approved email for step ' + step });\n      return;\n    }\n    const prevEmail = emails.filter((e) => e.status === 'Sent').sort((a, b) => Number(b.step) - Number(a.step))[0] || null;\n    sentToday[cid] = (sentToday[cid] || 0) + 1;\n    due.push({ lead: l, email, prevEmail, campaign });\n  });\n  return { due, skipped };\n}\n\n/** The message handed to the guard and the send sub-workflow. */\nfunction buildMessage(item, cfg, client) {\n  const { lead, email, prevEmail } = item;\n  const useB = lead.subject_variant === 'B' && email.subject_b;\n  const bare = (x) => String(x || '').trim().replace(/^(\\s*(\\[TEST\\]|Re:|AW:)\\s*)+/i, '').trim();\n  const subject = Number(email.step) === 1\n    ? bare(useB ? email.subject_b : email.subject)\n    : 'Re: ' + bare(prevEmail ? prevEmail.subject_sent || prevEmail.subject : email.subject);\n  return {\n    to: lead.email,\n    from: cfg.senderEmail,\n    fromName: (client && client.sender_name) || '',\n    subject,\n    body: email.body,\n    threadId: prevEmail ? prevEmail.thread_id : '',\n    inReplyTo: prevEmail ? prevEmail.rfc_message_id || '' : '',\n    leadId: lead.id,\n    emailId: email.id,\n    step: Number(email.step),\n    purpose: 'outreach',\n  };\n}\n\n/** Updates after a successful send. firstSentAt = step-1 sent_at (or now for step 1). */\nfunction afterSend(item, sendResult, now, sched, opts) {\n  const step = Number(item.email.step);\n  const firstSentAt = step === 1 ? now : item.lead.first_sent_at || now;\n  const nextStep = step + 1;\n  const leadFields = { status: 'Contacted', sequence_step: nextStep > 4 ? 4 : nextStep, first_sent_at: firstSentAt };\n  if (step >= 4) {\n    leadFields.sequence_finished = true;\n    leadFields.next_send_at = null;\n  } else {\n    leadFields.next_send_at = sched.sendAtForStep(firstSentAt, nextStep, opts).toISOString();\n  }\n  return {\n    lead: { id: item.lead.id, fields: leadFields },\n    email: {\n      id: item.email.id,\n      fields: {\n        status: 'Sent',\n        sent_at: new Date(now).toISOString(),\n        gmail_message_id: sendResult.id || '',\n        thread_id: sendResult.threadId || '',\n        subject_sent: sendResult.subject || '',\n      },\n    },\n  };\n}\n\n/** Daily safety check: Bounced / sent today; above 3% pauses the campaign. */\nfunction bounceCheck(sentToday, bouncedToday, threshold) {\n  const t = threshold === undefined ? 0.03 : threshold;\n  const rate = sentToday > 0 ? bouncedToday / sentToday : 0;\n  return { rate: Math.round(rate * 10000) / 10000, pause: sentToday > 0 && rate > t };\n}\n\nconst sendingApi = { SENDABLE, STOPPED, selectDue, buildMessage, afterSend, bounceCheck, linkId };\nif (typeof module !== 'undefined' && module.exports) module.exports = sendingApi;\n\n  return module.exports;\n})();\n\nM.schedule = (function () {\n  const module = { exports: {} };\n/**\n * schedule.js – send timing in Europe/Berlin without external libraries.\n * Steps 1–4 go out on day 0, 3, 7, 14 counted from the first send.\n * Real mode: only Mon–Fri 08:00–17:00 Berlin time (weekends skipped).\n * DEMO_MODE: days become minutes and the send window is ignored.\n */\nconst STEP_OFFSETS = { 1: 0, 2: 3, 3: 7, 4: 14 };\nconst TZ = 'Europe/Berlin';\nconst WINDOW = { startHour: 8, endHour: 17 };\nconst WEEKDAYS = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };\n\nfunction berlinParts(date) {\n  const d = new Date(date);\n  const fmt = new Intl.DateTimeFormat('en-GB', {\n    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short', hourCycle: 'h23',\n  });\n  const p = {};\n  fmt.formatToParts(d).forEach((x) => (p[x.type] = x.value));\n  return {\n    year: +p.year, month: +p.month, day: +p.day, hour: +p.hour, minute: +p.minute, second: +p.second, weekday: WEEKDAYS[p.weekday],\n  };\n}\n\n/** Converts a Berlin wall-clock time to a UTC Date (handles DST). */\nfunction berlinToUtc(year, month, day, hour, minute) {\n  let guess = Date.UTC(year, month - 1, day, hour, minute || 0);\n  for (let i = 0; i < 2; i++) {\n    const p = berlinParts(guess);\n    const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);\n    const offset = asUtc - guess;\n    guess = Date.UTC(year, month - 1, day, hour, minute || 0) - offset;\n  }\n  return new Date(guess);\n}\n\nfunction isSendWindow(date) {\n  const p = berlinParts(date);\n  return p.weekday <= 5 && p.hour >= WINDOW.startHour && p.hour < WINDOW.endHour;\n}\n\n/** The given time if it is inside the send window, else the next weekday 08:00 Berlin. */\nfunction nextSendSlot(date, opts) {\n  const d = new Date(date);\n  if (opts && opts.demoMode) return d;\n  if (isSendWindow(d)) return d;\n  let p = berlinParts(d);\n  // start from today 08:00 if before the window on a weekday, else move day by day\n  let cand = berlinToUtc(p.year, p.month, p.day, WINDOW.startHour, 0);\n  if (cand <= d) {\n    const next = new Date(Date.UTC(p.year, p.month - 1, p.day + 1, 12));\n    p = berlinParts(next);\n    cand = berlinToUtc(p.year, p.month, p.day, WINDOW.startHour, 0);\n  }\n  for (let i = 0; i < 7 && berlinParts(cand).weekday > 5; i++) {\n    const q = berlinParts(cand);\n    const next = new Date(Date.UTC(q.year, q.month - 1, q.day + 1, 12));\n    const r = berlinParts(next);\n    cand = berlinToUtc(r.year, r.month, r.day, WINDOW.startHour, 0);\n  }\n  return cand;\n}\n\n/** When step `step` is due, counted from the first send. */\nfunction sendAtForStep(firstSentAt, step, opts) {\n  const offset = STEP_OFFSETS[step];\n  if (offset === undefined) throw new Error('unknown step ' + step);\n  const first = new Date(firstSentAt);\n  if (opts && opts.demoMode) return new Date(first.getTime() + offset * 60 * 1000);\n  const p = berlinParts(first);\n  const target = berlinToUtc(p.year, p.month, p.day + offset, p.hour, p.minute);\n  return nextSendSlot(target, opts);\n}\n\n/** Wait between two sends: 60–180 s real, 2–5 s demo, 0 when mocked. */\nfunction randomDelaySeconds(opts, rand) {\n  const r = typeof rand === 'number' ? rand : Math.random();\n  if (opts && opts.mock) return 0;\n  if (opts && opts.demoMode) return 2 + Math.round(r * 3);\n  return 60 + Math.round(r * 120);\n}\n\n/** Berlin calendar date \"YYYY-MM-DD\" (for daily counters). */\nfunction berlinDate(date) {\n  const p = berlinParts(date);\n  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;\n}\n\nfunction addDays(date, days) {\n  return new Date(new Date(date).getTime() + days * 86400000);\n}\n\nconst scheduleApi = { STEP_OFFSETS, berlinParts, berlinToUtc, isSendWindow, nextSendSlot, sendAtForStep, randomDelaySeconds, berlinDate, addDays };\nif (typeof module !== 'undefined' && module.exports) module.exports = scheduleApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst cfg = $('Config').first().json.cfg;\nconst cur = $('One at a time').first().json;\nconst res = $input.first().json;\nif (!res.ok) throw new Error('send failed for email ' + cur.ref);\nconst u = M.sending.afterSend(cur.item, res, new Date().toISOString(), M.schedule, { demoMode: cfg.demoMode });\nu.email.fields.sent_to = res.sent_to;\nu.email.fields.original_to = res.original_to;\nreturn [{ json: { email: u.email, lead: u.lead, delay: Math.max(1, cur.delay) } }];\n"
+      }
+    },
+    {
+      "id": "5a8497be-b529-4d88-888f-215a78ff0efc",
+      "name": "Save email as Sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4560,
+        180
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Emails",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [$json.email], typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Emails (batches of 10)"
+    },
+    {
+      "id": "0e21218d-92ab-48f0-84f3-b3e0a19dd808",
+      "name": "Advance lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4800,
+        180
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [$('After send').first().json.lead], typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Leads (batches of 10)"
+    },
+    {
+      "id": "19664396-c6d2-4418-8abd-27410e1d9376",
+      "name": "Pause between sends",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        5040,
+        180
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $('After send').first().json.delay }}",
+        "unit": "seconds"
+      },
+      "webhookId": "9a91fdd8-63c8-4b39-8b0c-d5c950185590"
+    },
+    {
+      "id": "36ed4226-5c7a-43b3-8695-bfa1792e2cfb",
+      "name": "Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: { sent: $('One at a time').all().length } }];\n"
+      }
+    },
+    {
+      "id": "120920ab-ca1f-4b6e-8632-29497b51cf10",
+      "name": "Daily 17:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        720
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 17 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "49deb4ca-81c9-4e1e-8be7-272cf6954a5a",
+      "name": "Bounce check now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        900
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bounce-check",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "11fad89c-e672-4779-859c-02eae13bb380"
+    },
+    {
+      "id": "bf30e273-da91-477f-8349-0436cbcb8131",
+      "name": "Live campaigns (bounce)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        720
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{status}='Live'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Campaigns"
+    },
+    {
+      "id": "292adbd8-51fd-4e87-8da4-c0d44e637da0",
+      "name": "Bounced leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        720
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{status}='Bounced'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Leads"
+    },
+    {
+      "id": "af08bebf-a51c-4fd3-8278-688913390611",
+      "name": "Sent emails",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        720
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Emails",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{status}='Sent'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Emails"
+    },
+    {
+      "id": "0a4c9346-31b8-4d5d-84e9-c0878dbe054c",
+      "name": "Bounce rate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        720
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\nM.sending = (function () {\n  const module = { exports: {} };\n/**\n * sending.js – Module 6: which leads are due, what to send, and the state after a send.\n * Uses schedule.js and guard.js (passed in) so it runs in Jest and in n8n.\n */\nconst SENDABLE = ['Approved', 'Contacted'];\nconst STOPPED = ['Replied', 'Interested', 'Later', 'Not interested', 'Unsubscribed', 'Bounced', 'Meeting booked', 'Meeting held', 'No-show', 'Needs review'];\n\nfunction linkId(v) {\n  return Array.isArray(v) ? v[0] : v;\n}\n\n/**\n * ctx: {leads, campaigns, emails, blocklist, sentTodayByCampaign, replies, now, isBlocked}\n * returns {due:[{lead, email, prevEmail, campaign}], skipped:[{leadId, reason}]}\n */\nfunction selectDue(ctx) {\n  const now = new Date(ctx.now || Date.now());\n  const live = {};\n  (ctx.campaigns || []).forEach((c) => {\n    if (c.status === 'Live') live[c.id] = c;\n  });\n  const repliedLeads = new Set((ctx.replies || []).map((r) => linkId(r.lead)));\n  const sentToday = Object.assign({}, ctx.sentTodayByCampaign || {});\n  const due = [];\n  const skipped = [];\n  (ctx.leads || []).forEach((l) => {\n    const cid = linkId(l.campaign) || l.campaign_record_id;\n    const campaign = live[cid];\n    if (!campaign) return;\n    if (!SENDABLE.includes(l.status)) return;\n    if (l.sequence_finished) return;\n    const step = Number(l.sequence_step) || 0;\n    if (step < 1 || step > 4) return;\n    if (!l.next_send_at || new Date(l.next_send_at) > now) return;\n    if (repliedLeads.has(l.id)) {\n      skipped.push({ leadId: l.id, reason: 'lead has replied' });\n      return;\n    }\n    if (ctx.isBlocked(l.email, ctx.blocklist)) {\n      skipped.push({ leadId: l.id, reason: 'on blocklist' });\n      return;\n    }\n    if (ctx.maxPerRun && due.length >= ctx.maxPerRun) {\n      skipped.push({ leadId: l.id, reason: 'per-run cap reached (next tick)' });\n      return;\n    }\n    const limit = Number(campaign.daily_limit) || 40;\n    if ((sentToday[cid] || 0) >= limit) {\n      skipped.push({ leadId: l.id, reason: 'daily limit reached' });\n      return;\n    }\n    const emails = (ctx.emails || []).filter((e) => linkId(e.lead) === l.id || e.lead_record_id === l.id);\n    const email = emails.find((e) => Number(e.step) === step && e.status === 'Approved');\n    if (!email) {\n      skipped.push({ leadId: l.id, reason: 'no approved email for step ' + step });\n      return;\n    }\n    const prevEmail = emails.filter((e) => e.status === 'Sent').sort((a, b) => Number(b.step) - Number(a.step))[0] || null;\n    sentToday[cid] = (sentToday[cid] || 0) + 1;\n    due.push({ lead: l, email, prevEmail, campaign });\n  });\n  return { due, skipped };\n}\n\n/** The message handed to the guard and the send sub-workflow. */\nfunction buildMessage(item, cfg, client) {\n  const { lead, email, prevEmail } = item;\n  const useB = lead.subject_variant === 'B' && email.subject_b;\n  const bare = (x) => String(x || '').trim().replace(/^(\\s*(\\[TEST\\]|Re:|AW:)\\s*)+/i, '').trim();\n  const subject = Number(email.step) === 1\n    ? bare(useB ? email.subject_b : email.subject)\n    : 'Re: ' + bare(prevEmail ? prevEmail.subject_sent || prevEmail.subject : email.subject);\n  return {\n    to: lead.email,\n    from: cfg.senderEmail,\n    fromName: (client && client.sender_name) || '',\n    subject,\n    body: email.body,\n    threadId: prevEmail ? prevEmail.thread_id : '',\n    inReplyTo: prevEmail ? prevEmail.rfc_message_id || '' : '',\n    leadId: lead.id,\n    emailId: email.id,\n    step: Number(email.step),\n    purpose: 'outreach',\n  };\n}\n\n/** Updates after a successful send. firstSentAt = step-1 sent_at (or now for step 1). */\nfunction afterSend(item, sendResult, now, sched, opts) {\n  const step = Number(item.email.step);\n  const firstSentAt = step === 1 ? now : item.lead.first_sent_at || now;\n  const nextStep = step + 1;\n  const leadFields = { status: 'Contacted', sequence_step: nextStep > 4 ? 4 : nextStep, first_sent_at: firstSentAt };\n  if (step >= 4) {\n    leadFields.sequence_finished = true;\n    leadFields.next_send_at = null;\n  } else {\n    leadFields.next_send_at = sched.sendAtForStep(firstSentAt, nextStep, opts).toISOString();\n  }\n  return {\n    lead: { id: item.lead.id, fields: leadFields },\n    email: {\n      id: item.email.id,\n      fields: {\n        status: 'Sent',\n        sent_at: new Date(now).toISOString(),\n        gmail_message_id: sendResult.id || '',\n        thread_id: sendResult.threadId || '',\n        subject_sent: sendResult.subject || '',\n      },\n    },\n  };\n}\n\n/** Daily safety check: Bounced / sent today; above 3% pauses the campaign. */\nfunction bounceCheck(sentToday, bouncedToday, threshold) {\n  const t = threshold === undefined ? 0.03 : threshold;\n  const rate = sentToday > 0 ? bouncedToday / sentToday : 0;\n  return { rate: Math.round(rate * 10000) / 10000, pause: sentToday > 0 && rate > t };\n}\n\nconst sendingApi = { SENDABLE, STOPPED, selectDue, buildMessage, afterSend, bounceCheck, linkId };\nif (typeof module !== 'undefined' && module.exports) module.exports = sendingApi;\n\n  return module.exports;\n})();\n\nM.schedule = (function () {\n  const module = { exports: {} };\n/**\n * schedule.js – send timing in Europe/Berlin without external libraries.\n * Steps 1–4 go out on day 0, 3, 7, 14 counted from the first send.\n * Real mode: only Mon–Fri 08:00–17:00 Berlin time (weekends skipped).\n * DEMO_MODE: days become minutes and the send window is ignored.\n */\nconst STEP_OFFSETS = { 1: 0, 2: 3, 3: 7, 4: 14 };\nconst TZ = 'Europe/Berlin';\nconst WINDOW = { startHour: 8, endHour: 17 };\nconst WEEKDAYS = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };\n\nfunction berlinParts(date) {\n  const d = new Date(date);\n  const fmt = new Intl.DateTimeFormat('en-GB', {\n    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short', hourCycle: 'h23',\n  });\n  const p = {};\n  fmt.formatToParts(d).forEach((x) => (p[x.type] = x.value));\n  return {\n    year: +p.year, month: +p.month, day: +p.day, hour: +p.hour, minute: +p.minute, second: +p.second, weekday: WEEKDAYS[p.weekday],\n  };\n}\n\n/** Converts a Berlin wall-clock time to a UTC Date (handles DST). */\nfunction berlinToUtc(year, month, day, hour, minute) {\n  let guess = Date.UTC(year, month - 1, day, hour, minute || 0);\n  for (let i = 0; i < 2; i++) {\n    const p = berlinParts(guess);\n    const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);\n    const offset = asUtc - guess;\n    guess = Date.UTC(year, month - 1, day, hour, minute || 0) - offset;\n  }\n  return new Date(guess);\n}\n\nfunction isSendWindow(date) {\n  const p = berlinParts(date);\n  return p.weekday <= 5 && p.hour >= WINDOW.startHour && p.hour < WINDOW.endHour;\n}\n\n/** The given time if it is inside the send window, else the next weekday 08:00 Berlin. */\nfunction nextSendSlot(date, opts) {\n  const d = new Date(date);\n  if (opts && opts.demoMode) return d;\n  if (isSendWindow(d)) return d;\n  let p = berlinParts(d);\n  // start from today 08:00 if before the window on a weekday, else move day by day\n  let cand = berlinToUtc(p.year, p.month, p.day, WINDOW.startHour, 0);\n  if (cand <= d) {\n    const next = new Date(Date.UTC(p.year, p.month - 1, p.day + 1, 12));\n    p = berlinParts(next);\n    cand = berlinToUtc(p.year, p.month, p.day, WINDOW.startHour, 0);\n  }\n  for (let i = 0; i < 7 && berlinParts(cand).weekday > 5; i++) {\n    const q = berlinParts(cand);\n    const next = new Date(Date.UTC(q.year, q.month - 1, q.day + 1, 12));\n    const r = berlinParts(next);\n    cand = berlinToUtc(r.year, r.month, r.day, WINDOW.startHour, 0);\n  }\n  return cand;\n}\n\n/** When step `step` is due, counted from the first send. */\nfunction sendAtForStep(firstSentAt, step, opts) {\n  const offset = STEP_OFFSETS[step];\n  if (offset === undefined) throw new Error('unknown step ' + step);\n  const first = new Date(firstSentAt);\n  if (opts && opts.demoMode) return new Date(first.getTime() + offset * 60 * 1000);\n  const p = berlinParts(first);\n  const target = berlinToUtc(p.year, p.month, p.day + offset, p.hour, p.minute);\n  return nextSendSlot(target, opts);\n}\n\n/** Wait between two sends: 60–180 s real, 2–5 s demo, 0 when mocked. */\nfunction randomDelaySeconds(opts, rand) {\n  const r = typeof rand === 'number' ? rand : Math.random();\n  if (opts && opts.mock) return 0;\n  if (opts && opts.demoMode) return 2 + Math.round(r * 3);\n  return 60 + Math.round(r * 120);\n}\n\n/** Berlin calendar date \"YYYY-MM-DD\" (for daily counters). */\nfunction berlinDate(date) {\n  const p = berlinParts(date);\n  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;\n}\n\nfunction addDays(date, days) {\n  return new Date(new Date(date).getTime() + days * 86400000);\n}\n\nconst scheduleApi = { STEP_OFFSETS, berlinParts, berlinToUtc, isSendWindow, nextSendSlot, sendAtForStep, randomDelaySeconds, berlinDate, addDays };\nif (typeof module !== 'undefined' && module.exports) module.exports = scheduleApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst today = M.schedule.berlinDate(new Date());\nconst camps = M.airtable.fromItems($('Live campaigns (bounce)').all());\nconst emails = M.airtable.fromItems($('Sent emails').all()).filter((e) => e.sent_at && M.schedule.berlinDate(e.sent_at) === today);\nconst leads = M.airtable.fromItems($('Bounced leads').all()).filter((l) => l.bounced_at && M.schedule.berlinDate(l.bounced_at) === today);\nconst out = [];\ncamps.forEach((c) => {\n  const sent = emails.filter((e) => e.campaign_record_id === c.id).length;\n  const bounced = leads.filter((l) => l.campaign_record_id === c.id).length;\n  const r = M.sending.bounceCheck(sent, bounced);\n  if (r.pause) out.push({ json: { records: [{ id: c.id, fields: { status: 'Paused' } }], slack: { ref: c.id, text: ':warning: Campaign *' + c.name + '* paused: bounce rate ' + (r.rate * 100).toFixed(1) + '% today (' + bounced + '/' + sent + '), limit 3%' } } });\n});\nreturn out;\n"
+      }
+    },
+    {
+      "id": "d5684edf-6c43-4395-80c0-87706a0a43cf",
+      "name": "Pause campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        720
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records, typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Campaigns (batches of 10)"
+    },
+    {
+      "id": "3d834241-d186-4770-85cd-5d0f4106151e",
+      "name": "Pause message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        720
+      ],
+      "parameters": {
+        "jsCode": "return $('Bounce rate').all().map((i) => ({ json: i.json.slack }));\n"
+      }
+    },
+    {
+      "id": "a56ba395-4738-4402-87d0-490d6fa2a2fe",
+      "name": "Alert Slack",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2160,
+        720
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf15SlackNtfy",
+          "mode": "id",
+          "cachedResultName": "15_slack_notify"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "Every 15 min (business hours)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every minute (demo mode)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 17:30": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bounce check now": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Bounce check?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bounce check?": {
+      "main": [
+        [
+          {
+            "node": "Live campaigns (bounce)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gate": {
+      "main": [
+        [
+          {
+            "node": "Live campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live campaigns": {
+      "main": [
+        [
+          {
+            "node": "Any live?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any live?": {
+      "main": [
+        [
+          {
+            "node": "Sendable leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sendable leads": {
+      "main": [
+        [
+          {
+            "node": "Emails of live campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emails of live campaigns": {
+      "main": [
+        [
+          {
+            "node": "Replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replies": {
+      "main": [
+        [
+          {
+            "node": "Blocklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Blocklist": {
+      "main": [
+        [
+          {
+            "node": "Clients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clients": {
+      "main": [
+        [
+          {
+            "node": "Select due emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select due emails": {
+      "main": [
+        [
+          {
+            "node": "One at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One at a time": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Re-read email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-read email": {
+      "main": [
+        [
+          {
+            "node": "Still unsent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Still unsent?": {
+      "main": [
+        [
+          {
+            "node": "Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "One at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message": {
+      "main": [
+        [
+          {
+            "node": "Send (guarded)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send (guarded)": {
+      "main": [
+        [
+          {
+            "node": "After send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "After send": {
+      "main": [
+        [
+          {
+            "node": "Save email as Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save email as Sent": {
+      "main": [
+        [
+          {
+            "node": "Advance lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Advance lead": {
+      "main": [
+        [
+          {
+            "node": "Pause between sends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pause between sends": {
+      "main": [
+        [
+          {
+            "node": "One at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live campaigns (bounce)": {
+      "main": [
+        [
+          {
+            "node": "Bounced leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bounced leads": {
+      "main": [
+        [
+          {
+            "node": "Sent emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sent emails": {
+      "main": [
+        [
+          {
+            "node": "Bounce rate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bounce rate": {
+      "main": [
+        [
+          {
+            "node": "Pause campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pause campaign": {
+      "main": [
+        [
+          {
+            "node": "Pause message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pause message": {
+      "main": [
+        [
+          {
+            "node": "Alert Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "NxsWf00ErrorHndl"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "nexsaleFile": "06_sending",
+    "description": "Mon–Fri 08:00–17:00 every 15 min (DEMO_MODE: every minute, days = minutes). One email at a time, guarded."
+  },
+  "pinData": {},
+  "tags": []
+}

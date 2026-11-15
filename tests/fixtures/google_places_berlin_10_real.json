@@ -1,0 +1,206 @@
+{
+  "places": [
+    {
+      "id": "ChIJwxLQBIlRqEcRYQycQ2kyCdM",
+      "types": [
+        "point_of_interest",
+        "service",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "0175 2512964",
+      "formattedAddress": "Skalitzer Str. 33, 10999 Berlin",
+      "rating": 5,
+      "googleMapsUri": "https://maps.google.com/?cid=15206741044480445537&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+      "websiteUri": "https://www.immo-clean.de/",
+      "businessStatus": "OPERATIONAL",
+      "userRatingCount": 151,
+      "displayName": {
+        "text": "Reinigungsfirma Immo-Clean GmbH Berlin | Gebäudereinigungsservice",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJayJ6Cp9PqEcRLIMuFJNrBd0",
+      "types": [
+        "catering_service",
+        "food_delivery",
+        "supplier",
+        "manufacturer",
+        "laundry",
+        "food",
+        "point_of_interest",
+        "service",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "0176 64077706",
+      "formattedAddress": "Jonasstraße 69, 12053 Berlin",
+      "rating": 5,
+      "googleMapsUri": "https://maps.google.com/?cid=15926253936708584236&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+      "websiteUri": "http://www.reinigungsfirma-jetclean.de/",
+      "businessStatus": "OPERATIONAL",
+      "userRatingCount": 66,
+      "displayName": {
+        "text": "Jetclean Gebäudereinigungsservice",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJ8x9qvI4LL64RIjEuo7MOvmQ",
+      "types": [
+        "laundry",
+        "point_of_interest",
+        "service",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 201642481",
+      "formattedAddress": "Kollwitzstraße 76, 10435 Berlin",
+      "rating": 5,
+      "googleMapsUri": "https://maps.google.com/?cid=7259255814067466530&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+      "websiteUri": "https://putzheldenberlin.de/",
+      "businessStatus": "OPERATIONAL",
+      "userRatingCount": 44,
+      "displayName": {
+        "text": "Reinigungsfirma 𝗣𝘂𝘁𝘇𝗛𝗲𝗹𝗱𝗲𝗻 Berlin | Gebäudereinigungsservice",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJxxDJ0pdCFyERHzUHSOoJpJw",
+      "types": [
+        "garden_center",
+        "garden",
+        "general_contractor",
+        "store",
+        "point_of_interest",
+        "service",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "01516 6393666",
+      "formattedAddress": "Stresemannstraße 23, 10963 Berlin",
+      "rating": 4.9,
+      "googleMapsUri": "https://maps.google.com/?cid=11287157467932734751&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+      "websiteUri": "https://lutum-reinigungsdienst.de/",
+      "businessStatus": "OPERATIONAL",
+      "userRatingCount": 62,
+      "displayName": {
+        "text": "Lutum Reinigungsdienst",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJw-gVv3ZVqEcRPDsLy_cZbGc",
+      "types": [
+        "point_of_interest",
+        "service",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 53116379",
+      "formattedAddress": "Hansastraße 6, 13409 Berlin",
+      "rating": 5,
+      "googleMapsUri": "https://maps.google.com/?cid=7452360035445455676&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+      "websiteUri": "https://falconcleaning.de/",
+      "businessStatus": "OPERATIONAL",
+      "userRatingCount": 76,
+      "displayName": {
+        "text": "Falcon Cleaning",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJRSCheAhPqEcRp3ZIvNqg690",
+      "types": [
+        "laundry",
+        "point_of_interest",
+        "service",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "0176 57753456",
+      "formattedAddress": "Saarstraße 9, 12161 Berlin",
+      "rating": 4.9,
+      "googleMapsUri": "https://maps.google.com/?cid=15991051763231258279&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+      "websiteUri": "https://mimiclean24.de/",
+      "businessStatus": "OPERATIONAL",
+      "userRatingCount": 121,
+      "displayName": {
+        "text": "MiMi Clean 24",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJ76gRcwpPqEcR8eUNLWk4fyI",
+      "types": [
+        "point_of_interest",
+        "service",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "01577 6260212",
+      "formattedAddress": "Kollwitzstraße 76, 10435 Berlin",
+      "rating": 5,
+      "googleMapsUri": "https://maps.google.com/?cid=2485767543710410225&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+      "websiteUri": "https://putzprofisberlin.de/",
+      "businessStatus": "OPERATIONAL",
+      "userRatingCount": 23,
+      "displayName": {
+        "text": "PutzProfis Berlin | Gebäudereinigungsservice",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJidGgbxtHqEcR3nRUfd9jfDM",
+      "types": [
+        "point_of_interest",
+        "service",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 98430401",
+      "formattedAddress": "Chemnitzer Str. 213, 12621 Berlin-Bezirk Marzahn-Hellersdorf",
+      "rating": 5,
+      "googleMapsUri": "https://maps.google.com/?cid=3709950004577989854&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+      "websiteUri": "http://www.estiaclean.de/",
+      "businessStatus": "OPERATIONAL",
+      "userRatingCount": 277,
+      "displayName": {
+        "text": "Gebäudereinigung",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJZWNMtDJRqEcRpaCCaBTTEmc",
+      "types": [
+        "laundry",
+        "point_of_interest",
+        "service",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 86308890",
+      "formattedAddress": "Reuchlinstraße 10, 10553 Berlin",
+      "rating": 5,
+      "googleMapsUri": "https://maps.google.com/?cid=7427230820093567141&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+      "websiteUri": "https://www.dreimann-service.de/",
+      "businessStatus": "OPERATIONAL",
+      "userRatingCount": 30,
+      "displayName": {
+        "text": "Dreimann Group GmbH",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJ-S5GAL4lMYsRzjO_dGaMo4w",
+      "types": [
+        "point_of_interest",
+        "service",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "0176 80478358",
+      "formattedAddress": "Birkenstraße 22, 10559 Berlin",
+      "rating": 4.9,
+      "googleMapsUri": "https://maps.google.com/?cid=10134097958186988494&g_mp=Cidnb29nbGUubWFwcy5wbGFjZXMudjEuUGxhY2VzLlNlYXJjaFRleHQQAhgEIAA",
+      "businessStatus": "OPERATIONAL",
+      "userRatingCount": 45,
+      "displayName": {
+        "text": "GBS Büro- und Gebäudereinigung Berlin GmbH",
+        "languageCode": "de"
+      }
+    }
+  ]
+}

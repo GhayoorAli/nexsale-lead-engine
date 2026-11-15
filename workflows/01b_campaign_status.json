@@ -1,0 +1,303 @@
+{
+  "id": "NxsWf01bCmpStat0",
+  "name": "Nexsale 01b – Campaign status page",
+  "active": false,
+  "versionId": "9a9209fe-999a-491b-8390-35ff34cb932a",
+  "nodes": [
+    {
+      "id": "62ea6c07-6ed4-4410-8156-fe6cc77e066a",
+      "name": "Status request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "campaign-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "14b5ec63-3af0-416a-8958-a5a9348602f3"
+    },
+    {
+      "id": "cfeba060-c71a-402f-8593-92d4d50dfd75",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.config = (function () {\n  const module = { exports: {} };\n/**\n * config.js – builds the runtime config for every workflow from environment variables.\n * Used by the first \"Config\" Code node in each workflow. Secrets are NOT copied into\n * the output (execution data is stored in n8n); HTTP nodes read tokens from $env directly.\n */\nfunction bool(v, dflt) {\n  if (v === undefined || v === null || v === '') return dflt;\n  return String(v).trim().toLowerCase() === 'true';\n}\n\nfunction parseList(v) {\n  return String(v || '')\n    .split(/[,;\\s]+/)\n    .map((s) => s.trim().toLowerCase())\n    .filter(Boolean);\n}\n\nfunction parseLimit(v, demoMode) {\n  if (v === undefined || v === null || v === '') return demoMode ? 10 : null;\n  if (String(v).trim().toLowerCase() === 'off') return null;\n  const n = parseInt(v, 10);\n  return Number.isFinite(n) && n > 0 ? n : 10;\n}\n\nfunction trimSlash(u) {\n  return String(u || '').replace(/\\/+$/, '');\n}\n\nfunction buildConfig(env) {\n  env = env || {};\n  // Safe defaults: demo mode ON unless explicitly \"false\".\n  const demoMode = bool(env.DEMO_MODE, true);\n  const mock = bool(env.MOCK_EXTERNAL, false);\n  const mockBase = trimSlash(env.MOCK_BASE_URL || 'http://host.docker.internal:8787');\n  const real = {\n    airtable: 'https://api.airtable.com/v0',\n    googlePlaces: 'https://places.googleapis.com/v1',\n    openai: 'https://api.openai.com/v1',\n    anthropic: 'https://api.anthropic.com/v1',\n    slack: 'https://slack.com/api',\n    gmail: 'https://gmail.googleapis.com/gmail/v1',\n    hubspot: 'https://api.hubapi.com',\n    dns: 'https://dns.google',\n    web: '',\n    calendly: 'https://api.calendly.com',\n  };\n  const mocked = {\n    airtable: mockBase + '/airtable/v0',\n    googlePlaces: mockBase + '/google/v1',\n    openai: mockBase + '/ai/openai/v1',\n    anthropic: mockBase + '/ai/anthropic/v1',\n    slack: mockBase + '/slack/api',\n    gmail: mockBase + '/gmail/v1',\n    hubspot: mockBase + '/hubspot',\n    dns: mockBase + '/dns',\n    web: mockBase + '/web',\n    calendly: mockBase + '/calendly',\n  };\n  const urls = mock ? mocked : real;\n  const aiProvider = String(env.AI_PROVIDER || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : 'openai';\n  const allowlist = parseList(env.TEST_RECIPIENT_ALLOWLIST);\n  const conf = parseFloat(env.AUTO_REPLY_MIN_CONFIDENCE);\n  return {\n    demoMode,\n    mock,\n    allowRealSending: !demoMode && bool(env.ALLOW_REAL_SENDING, false),\n    // DEMO_MODE sends from an every-minute ticker; the test stack turns it off and drives sends by webhook\n    demoTicker: !bool(env.DISABLE_DEMO_TICKER, false),\n    // cap per run so one run always finishes before the next tick (no overlapping runs)\n    maxSendsPerRun: demoMode ? 6 : 5,\n    testLeadLimit: parseLimit(env.TEST_LEAD_LIMIT, demoMode),\n    allowlist,\n    testProspectEmail: String(env.TEST_PROSPECT_EMAIL || '').trim().toLowerCase(),\n    senderEmail: String(env.SENDER_EMAIL || '').trim().toLowerCase(),\n    autoReplyMinConfidence: Number.isFinite(conf) ? conf : 0.85,\n    unsureConfidence: 0.7,\n    timezone: 'Europe/Berlin',\n    airtableBaseId: env.AIRTABLE_BASE_ID || '',\n    airtableUrl: urls.airtable + '/' + (env.AIRTABLE_BASE_ID || ''),\n    googlePlacesUrl: urls.googlePlaces,\n    aiProvider,\n    aiModel: env.AI_MODEL || (aiProvider === 'anthropic' ? 'claude-haiku-5-5' : 'gpt-4o-mini'),\n    aiUrl: aiProvider === 'anthropic' ? urls.anthropic + '/messages' : urls.openai + '/chat/completions',\n    slackApiUrl: urls.slack,\n    slackChannel: env.SLACK_CHANNEL || '#leads',\n    gmailUrl: urls.gmail,\n    hubspotUrl: urls.hubspot,\n    dnsUrl: urls.dns,\n    webProxyUrl: urls.web,\n    calendlyLink: env.CALENDLY_LINK || '',\n    calendlyApiUrl: urls.calendly,\n    n8nBaseUrl: trimSlash(env.WEBHOOK_URL || 'http://localhost:5678'),\n    n8nInternalUrl: trimSlash(env.N8N_INTERNAL_URL || 'http://localhost:5678'),\n    interfaceUrl: env.AIRTABLE_INTERFACE_URL || (env.AIRTABLE_BASE_ID ? 'https://airtable.com/' + env.AIRTABLE_BASE_ID : ''),\n    googleCostPerRequestEur: 0.032,\n  };\n}\n\n/** URL to fetch a company web page; in mock mode served by the mock server. */\nfunction webUrl(cfg, domain, path) {\n  path = path || '/';\n  if (cfg.webProxyUrl) return cfg.webProxyUrl + '/' + domain + path;\n  return 'https://' + domain + path;\n}\n\nconst configApi = { buildConfig, webUrl, parseList, parseLimit };\nif (typeof module !== 'undefined' && module.exports) module.exports = configApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst trigger = $input.all().map((i) => i.json);\n// test stack only: schedules are switched off so tests drive every module through its webhook\nconst scheduled = trigger.length > 0 && trigger[0] && trigger[0]['Readable date'] !== undefined;\nif (scheduled && String($env.DISABLE_SCHEDULES).toLowerCase() === 'true') return [];\nreturn [{ json: { cfg: M.config.buildConfig($env), trigger, startedAt: new Date().toISOString() } }];\n"
+      },
+      "notes": "Builds runtime config from env (no secrets in output)."
+    },
+    {
+      "id": "31652f2a-9fb3-4f8f-89f3-cfef3b93d8a0",
+      "name": "Campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 1,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ ($('Status request').first().json.query.id ? \"RECORD_ID()='\" + String($('Status request').first().json.query.id).replace(/[^A-Za-z0-9]/g, '') + \"'\" : 'TRUE()') }}"
+            },
+            {
+              "name": "maxRecords",
+              "value": "1"
+            },
+            {
+              "name": "sort[0][field]",
+              "value": "created_at"
+            },
+            {
+              "name": "sort[0][direction]",
+              "value": "desc"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "The campaign from ?id=, or the newest one"
+    },
+    {
+      "id": "8def6070-ce28-4be2-88e6-ef71dd67cf47",
+      "name": "Campaign leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{campaign_record_id}='\" + String(($('Campaign').first().json.records || [{}])[0] ? ($('Campaign').first().json.records[0] || {}).id || '__none__' : '__none__') + \"'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Leads"
+    },
+    {
+      "id": "e3941b1c-82dd-4938-8218-9961496042d3",
+      "name": "Render page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.statusPage = (function () {\n  const module = { exports: {} };\n/**\n * statusPage.js – the page the campaign form lands on after click 1.\n * Shows live progress (found → checked → emails written → ready) and refreshes itself until the campaign is Ready.\n * Pure function: data in, HTML out (escaped), so it is unit-tested without n8n.\n */\nconst IN_ENRICHMENT = ['New', 'Enriching'];\nconst BEFORE_EMAILS = ['New', 'Enriching', 'Enriched', 'Drafting'];\nconst APPROVED_OR_LATER = ['Approved', 'Contacted', 'Replied', 'Interested', 'Later', 'Meeting booked', 'Meeting held', 'No-show', 'Not interested', 'Unsubscribed', 'Bounced'];\n\nfunction esc(s) {\n  return String(s === undefined || s === null ? '' : s).replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\n}\n\n/** Counts and step states from the campaign and its leads. */\nfunction progress(campaign, leads) {\n  const c = campaign || {};\n  const L = (leads || []).filter(Boolean);\n  const count = (pred) => L.filter(pred).length;\n  const found = L.length;\n  const rejected = count((l) => l.status === 'Rejected');\n  const enrichedDone = count((l) => !IN_ENRICHMENT.includes(l.status));\n  const emailsDone = count((l) => !BEFORE_EMAILS.includes(l.status) && l.status !== 'Rejected');\n  const approved = count((l) => APPROVED_OR_LATER.includes(l.status));\n  const review = count((l) => l.status === 'Needs review');\n  const st = c.status || 'Sourcing';\n  const ready = ['Ready', 'Launch', 'Live', 'Paused', 'Completed'].includes(st);\n  const live = ['Live', 'Paused', 'Completed'].includes(st);\n  const sourced = found > 0 || ready || Number(c.google_api_requests) > 0;\n  const enrichFinished = sourced && found > 0 && enrichedDone === found;\n  const steps = [\n    { key: 'created', label: 'Kampagne angelegt', detail: esc(c.name), state: 'done' },\n    { key: 'sourced', label: 'Firmen bei Google gefunden', detail: sourced ? found + ' Firmen mit Website' : 'Suche läuft …', state: sourced ? 'done' : 'active' },\n    { key: 'enriched', label: 'Impressum geprüft, Ansprechpartner und E-Mail gefunden', detail: sourced ? (enrichedDone + ' von ' + found + ' geprüft · ' + (found - rejected) + ' passend · ' + rejected + ' aussortiert') : '',\n      state: enrichFinished || ready ? 'done' : sourced ? 'active' : 'pending' },\n    { key: 'emails', label: 'Persönliche E-Mails geschrieben und geprüft', detail: enrichFinished || ready ? (approved + ' freigegeben' + (review ? ' · ' + review + ' zur Prüfung' : '')) : '',\n      state: ready ? 'done' : enrichFinished ? 'active' : 'pending' },\n    { key: 'ready', label: live ? 'Kampagne läuft' : 'Bereit zum Start', detail: live ? 'E-Mails werden versendet' : ready ? 'Öffnen Sie Slack #leads und klicken Sie \"Approve and launch\"' : '',\n      state: ready ? 'done' : 'pending' },\n  ];\n  return { found, rejected, enrichedDone, emailsDone, approved, review, ready, live, status: st, steps };\n}\n\nconst ICON = { done: '&#10003;', active: '&#8226;', pending: '' };\n\n/**\n * opts: { campaign, leads, airtableUrl, refreshSeconds, notFound }\n */\nfunction renderStatusPage(opts) {\n  const o = opts || {};\n  if (o.notFound || !o.campaign) {\n    return page('Kampagne nicht gefunden', '<p class=\"lead\">Diese Kampagne gibt es nicht (mehr). Starten Sie eine neue über das Formular.</p>', 0);\n  }\n  const p = progress(o.campaign, o.leads);\n  const refresh = p.ready ? 0 : (o.refreshSeconds || 5);\n  const steps = p.steps.map((s) => `<li class=\"${s.state}\"><span class=\"dot\">${ICON[s.state]}</span><div><b>${esc(s.label)}</b>${s.detail ? `<small>${s.detail}</small>` : ''}</div></li>`).join('');\n  const top = (o.leads || []).filter((l) => APPROVED_OR_LATER.includes(l.status)).slice(0, 100)\n    .map((l) => `<tr><td>${esc(l.company_name)}</td><td>${esc(l.contact_name || '–')}</td><td>${esc(l.quality_score || '')}</td></tr>`).join('');\n  const headline = p.live ? 'Die Kampagne läuft' : p.ready ? 'Kampagne bereit: Klick 2 und 3 in Slack' : 'Ihre Kampagne wird vorbereitet';\n  const sub = p.ready ? '' : '<p class=\"lead\">Klick 1 ist erledigt. Alles Weitere läuft automatisch, diese Seite aktualisiert sich selbst (meist unter 2 Minuten).</p>';\n  const next = p.ready && !p.live\n    ? `<div class=\"next\"><b>Nächster Schritt:</b> Öffnen Sie in Slack den Kanal <b>#leads</b>, prüfen Sie die Nachricht \"Campaign ready\" (Klick 2) und klicken Sie <b>Approve and launch</b> (Klick 3).</div>` : '';\n  const table = top ? `<h2>Freigegebene Leads</h2><table><tr><th>Firma</th><th>Ansprechpartner</th><th>Qualität</th></tr>${top}</table>` : '';\n  const link = (o.airtableUrl ? `<p class=\"links\"><a href=\"${esc(o.airtableUrl)}\" target=\"_blank\" rel=\"noopener\">Alle Leads und E-Mails in Airtable öffnen</a></p>` : '')\n    + (o.dashboardUrl ? `<p class=\"links\"><a href=\"${esc(o.dashboardUrl)}\">Zum Dashboard</a></p>` : '');\n  return page(headline, `${sub}<ol class=\"steps\">${steps}</ol>${next}${table}${link}`, refresh, o.campaign.name);\n}\n\nfunction page(title, body, refresh, name) {\n  return `<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n${refresh ? `<meta http-equiv=\"refresh\" content=\"${Number(refresh)}\">` : ''}<title>${esc(name ? name + ' · Status' : 'Kampagnenstatus')}</title>\n<style>\n:root{--bg:#f7f8fb;--card:#fff;--text:#1f2430;--muted:#667085;--line:#e4e7ec;--accent:#ff5a4e;--ok:#12805c;--okbg:#e7f6ef}\n@media (prefers-color-scheme:dark){:root{--bg:#14161b;--card:#1d2027;--text:#eceef2;--muted:#9aa3b2;--line:#2c313b;--ok:#4cc38a;--okbg:#17352a}}\n*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif}\n.card{max-width:560px;margin:32px auto;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px 24px}\n@media (max-width:600px){.card{margin:16px;padding:20px 16px}}\nh1{font-size:21px;margin:0 0 6px}h2{font-size:15px;margin:22px 0 8px}.lead{color:var(--muted);margin:0 0 18px}\n.steps{list-style:none;padding:0;margin:0}.steps li{display:flex;gap:12px;padding:10px 0;border-top:1px solid var(--line)}.steps li:first-child{border-top:0}\n.dot{flex:0 0 24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;border:2px solid var(--line);color:var(--muted)}\n.done .dot{background:var(--okbg);border-color:var(--ok);color:var(--ok)}.active .dot{border-color:var(--accent);color:var(--accent);animation:p 1.2s infinite}\n.pending b{color:var(--muted);font-weight:500}small{display:block;color:var(--muted)}\n@keyframes p{50%{opacity:.35}}\n.next{margin-top:18px;padding:12px 14px;border-radius:8px;background:var(--okbg);border:1px solid var(--ok)}\ntable{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;padding:6px 4px;border-top:1px solid var(--line)}th{color:var(--muted);font-weight:500}\n.links a{color:var(--accent)}\n</style></head><body><div class=\"card\"><h1>${esc(title)}</h1>${body}</div></body></html>`;\n}\n\nconst statusPageApi = { progress, renderStatusPage, esc };\nif (typeof module !== 'undefined' && module.exports) module.exports = statusPageApi;\n\n  return module.exports;\n})();\n\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst cfg = $('Config').first().json.cfg;\nconst campaign = M.airtable.fromItems($('Campaign').all())[0] || null;\nconst leads = M.airtable.fromItems($('Campaign leads').all());\nconst airtableUrl = cfg.airtableBaseId && !cfg.mock ? 'https://airtable.com/' + cfg.airtableBaseId : '';\nconst dashboardUrl = cfg.n8nBaseUrl + '/webhook/dashboard' + (campaign && campaign.client_record_id ? '?client=' + campaign.client_record_id : '');\nreturn [{ json: { html: M.statusPage.renderStatusPage({ campaign, leads, airtableUrl, dashboardUrl, refreshSeconds: 5, notFound: !campaign }) } }];\n"
+      }
+    },
+    {
+      "id": "23605cf9-8ba4-44a7-89b3-d42005a7822f",
+      "name": "Show page",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Status request": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaign": {
+      "main": [
+        [
+          {
+            "node": "Campaign leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaign leads": {
+      "main": [
+        [
+          {
+            "node": "Render page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render page": {
+      "main": [
+        [
+          {
+            "node": "Show page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "NxsWf00ErrorHndl"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "nexsaleFile": "01b_campaign_status",
+    "description": "GET /webhook/campaign-status?id=<campaign>: the page the form lands on after click 1. Live progress, refreshes itself until the campaign is Ready."
+  },
+  "pinData": {},
+  "tags": []
+}

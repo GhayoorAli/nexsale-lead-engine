@@ -1,0 +1,1197 @@
+{
+  "id": "NxsWf05CampLaunc",
+  "name": "Nexsale 05 – Campaign launch (pre-launch checks)",
+  "active": false,
+  "versionId": "da8e0bc9-5a3f-4035-8d59-b302a4ee8f5e",
+  "nodes": [
+    {
+      "id": "bb4172cd-e70e-4880-826d-f2ca9722050a",
+      "name": "Launch webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "campaign-launch",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "8949bf40-5c08-4b57-822e-0cd51264f339"
+    },
+    {
+      "id": "b20bee3a-22bc-4b1d-8526-0c14a4d63716",
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "da94865b-d464-4f1c-8ea6-f8f099063129",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.config = (function () {\n  const module = { exports: {} };\n/**\n * config.js – builds the runtime config for every workflow from environment variables.\n * Used by the first \"Config\" Code node in each workflow. Secrets are NOT copied into\n * the output (execution data is stored in n8n); HTTP nodes read tokens from $env directly.\n */\nfunction bool(v, dflt) {\n  if (v === undefined || v === null || v === '') return dflt;\n  return String(v).trim().toLowerCase() === 'true';\n}\n\nfunction parseList(v) {\n  return String(v || '')\n    .split(/[,;\\s]+/)\n    .map((s) => s.trim().toLowerCase())\n    .filter(Boolean);\n}\n\nfunction parseLimit(v, demoMode) {\n  if (v === undefined || v === null || v === '') return demoMode ? 10 : null;\n  if (String(v).trim().toLowerCase() === 'off') return null;\n  const n = parseInt(v, 10);\n  return Number.isFinite(n) && n > 0 ? n : 10;\n}\n\nfunction trimSlash(u) {\n  return String(u || '').replace(/\\/+$/, '');\n}\n\nfunction buildConfig(env) {\n  env = env || {};\n  // Safe defaults: demo mode ON unless explicitly \"false\".\n  const demoMode = bool(env.DEMO_MODE, true);\n  const mock = bool(env.MOCK_EXTERNAL, false);\n  const mockBase = trimSlash(env.MOCK_BASE_URL || 'http://host.docker.internal:8787');\n  const real = {\n    airtable: 'https://api.airtable.com/v0',\n    googlePlaces: 'https://places.googleapis.com/v1',\n    openai: 'https://api.openai.com/v1',\n    anthropic: 'https://api.anthropic.com/v1',\n    slack: 'https://slack.com/api',\n    gmail: 'https://gmail.googleapis.com/gmail/v1',\n    hubspot: 'https://api.hubapi.com',\n    dns: 'https://dns.google',\n    web: '',\n    calendly: 'https://api.calendly.com',\n  };\n  const mocked = {\n    airtable: mockBase + '/airtable/v0',\n    googlePlaces: mockBase + '/google/v1',\n    openai: mockBase + '/ai/openai/v1',\n    anthropic: mockBase + '/ai/anthropic/v1',\n    slack: mockBase + '/slack/api',\n    gmail: mockBase + '/gmail/v1',\n    hubspot: mockBase + '/hubspot',\n    dns: mockBase + '/dns',\n    web: mockBase + '/web',\n    calendly: mockBase + '/calendly',\n  };\n  const urls = mock ? mocked : real;\n  const aiProvider = String(env.AI_PROVIDER || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : 'openai';\n  const allowlist = parseList(env.TEST_RECIPIENT_ALLOWLIST);\n  const conf = parseFloat(env.AUTO_REPLY_MIN_CONFIDENCE);\n  return {\n    demoMode,\n    mock,\n    allowRealSending: !demoMode && bool(env.ALLOW_REAL_SENDING, false),\n    // DEMO_MODE sends from an every-minute ticker; the test stack turns it off and drives sends by webhook\n    demoTicker: !bool(env.DISABLE_DEMO_TICKER, false),\n    // cap per run so one run always finishes before the next tick (no overlapping runs)\n    maxSendsPerRun: demoMode ? 6 : 5,\n    testLeadLimit: parseLimit(env.TEST_LEAD_LIMIT, demoMode),\n    allowlist,\n    testProspectEmail: String(env.TEST_PROSPECT_EMAIL || '').trim().toLowerCase(),\n    senderEmail: String(env.SENDER_EMAIL || '').trim().toLowerCase(),\n    autoReplyMinConfidence: Number.isFinite(conf) ? conf : 0.85,\n    unsureConfidence: 0.7,\n    timezone: 'Europe/Berlin',\n    airtableBaseId: env.AIRTABLE_BASE_ID || '',\n    airtableUrl: urls.airtable + '/' + (env.AIRTABLE_BASE_ID || ''),\n    googlePlacesUrl: urls.googlePlaces,\n    aiProvider,\n    aiModel: env.AI_MODEL || (aiProvider === 'anthropic' ? 'claude-haiku-5-5' : 'gpt-4o-mini'),\n    aiUrl: aiProvider === 'anthropic' ? urls.anthropic + '/messages' : urls.openai + '/chat/completions',\n    slackApiUrl: urls.slack,\n    slackChannel: env.SLACK_CHANNEL || '#leads',\n    gmailUrl: urls.gmail,\n    hubspotUrl: urls.hubspot,\n    dnsUrl: urls.dns,\n    webProxyUrl: urls.web,\n    calendlyLink: env.CALENDLY_LINK || '',\n    calendlyApiUrl: urls.calendly,\n    n8nBaseUrl: trimSlash(env.WEBHOOK_URL || 'http://localhost:5678'),\n    n8nInternalUrl: trimSlash(env.N8N_INTERNAL_URL || 'http://localhost:5678'),\n    interfaceUrl: env.AIRTABLE_INTERFACE_URL || (env.AIRTABLE_BASE_ID ? 'https://airtable.com/' + env.AIRTABLE_BASE_ID : ''),\n    googleCostPerRequestEur: 0.032,\n  };\n}\n\n/** URL to fetch a company web page; in mock mode served by the mock server. */\nfunction webUrl(cfg, domain, path) {\n  path = path || '/';\n  if (cfg.webProxyUrl) return cfg.webProxyUrl + '/' + domain + path;\n  return 'https://' + domain + path;\n}\n\nconst configApi = { buildConfig, webUrl, parseList, parseLimit };\nif (typeof module !== 'undefined' && module.exports) module.exports = configApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst trigger = $input.all().map((i) => i.json);\n// test stack only: schedules are switched off so tests drive every module through its webhook\nconst scheduled = trigger.length > 0 && trigger[0] && trigger[0]['Readable date'] !== undefined;\nif (scheduled && String($env.DISABLE_SCHEDULES).toLowerCase() === 'true') return [];\nreturn [{ json: { cfg: M.config.buildConfig($env), trigger, startedAt: new Date().toISOString() } }];\n"
+      },
+      "notes": "Builds runtime config from env (no secrets in output)."
+    },
+    {
+      "id": "57b38607-986b-4166-89fb-b14990e3f069",
+      "name": "Campaigns to launch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 1,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{status}='Launch'\" }}"
+            },
+            {
+              "name": "maxRecords",
+              "value": "1"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Set to Launch by the Slack button (Module 11) or an Airtable Interface button"
+    },
+    {
+      "id": "d2144a58-e666-4645-869e-fab4ae18eb4c",
+      "name": "Pick campaign",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst c = M.airtable.fromItems($('Campaigns to launch').all())[0];\nreturn c ? [{ json: { campaign: c } }] : [];\n"
+      }
+    },
+    {
+      "id": "7704823b-317d-4123-8a6d-3dfaeb650449",
+      "name": "Campaign leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{campaign_record_id}='\" + $('Pick campaign').first().json.campaign.id + \"'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Leads"
+    },
+    {
+      "id": "398e755a-adb3-43af-899b-8ec2888a5f7c",
+      "name": "Campaign emails",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Emails",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{campaign_record_id}='\" + $('Pick campaign').first().json.campaign.id + \"'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Emails"
+    },
+    {
+      "id": "78f9d9b1-a5c4-4e4c-84e7-83f9c7b9932a",
+      "name": "Blocklist",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Blocklist",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Blocklist"
+    },
+    {
+      "id": "330f8618-3827-4aae-8d6b-2dab7451cd3d",
+      "name": "Live campaigns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{status}='Live'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Campaigns"
+    },
+    {
+      "id": "66ca1289-70c1-4ad4-8290-6aae62f8e290",
+      "name": "Contacted leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{status}='Contacted'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Leads"
+    },
+    {
+      "id": "dcf5c226-c170-4417-8201-9610424ca18c",
+      "name": "Mock?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bbb6da4e-5e5f-4042-8aae-79707a3fea85",
+              "leftValue": "={{ $('Config').first().json.cfg.mock }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "4a4f955c-3a50-4d30-864f-7bfa1b815630",
+      "name": "Gmail profile (mock)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        180
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.gmailUrl }}/users/me/profile",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "authentication": "none"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e51e0df4-0767-4310-8411-926a98b8d877",
+      "name": "Gmail profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        -180
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Gmail sender"
+        }
+      },
+      "notes": "Check 5: the Gmail credential works (profile call, no email sent)"
+    },
+    {
+      "id": "a770f39f-16a8-423d-8c15-f68ca329593a",
+      "name": "Pre-launch checks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\nM.launchChecks = (function () {\n  const module = { exports: {} };\n/**\n * launchChecks.js – Module 5 pre-launch checks and the launch plan.\n */\nfunction domainOf(email) {\n  return String(email || '').split('@')[1] || '';\n}\n\n/**\n * ctx: {campaign, leads, emails, blocklist, otherLiveContactedDomains, gmailOk, testMode, isBlocked}\n * returns {ok, failures:[{check, count, detail}], approvedLeads}\n */\nfunction runPrelaunchChecks(ctx) {\n  const failures = [];\n  const minLeads = ctx.testMode ? 5 : 20;\n  const approved = (ctx.leads || []).filter((l) => l.status === 'Approved');\n  if (approved.length < minLeads) failures.push({ check: `At least ${minLeads} Approved leads`, count: approved.length, detail: `${approved.length} approved` });\n  const emailsByLead = {};\n  (ctx.emails || []).forEach((e) => {\n    const id = Array.isArray(e.lead) ? e.lead[0] : e.lead_record_id || e.lead;\n    (emailsByLead[id] = emailsByLead[id] || []).push(e);\n  });\n  const badQuality = approved.filter((l) => {\n    const es = emailsByLead[l.id] || [];\n    return es.length !== 4 || es.some((e) => !e.approved || Number(e.quality_score) < 80);\n  });\n  if (badQuality.length) failures.push({ check: 'Every sequence passed the AI quality check', count: badQuality.length, detail: badQuality.map((l) => l.company_name).join(', ') });\n  const blocked = approved.filter((l) => ctx.isBlocked(l.email, ctx.blocklist) || ctx.isBlocked('x@' + (l.domain || domainOf(l.email)), ctx.blocklist));\n  if (blocked.length) failures.push({ check: 'No lead on the Blocklist', count: blocked.length, detail: blocked.map((l) => l.email).join(', ') });\n  const other = new Set((ctx.otherLiveContactedDomains || []).map((d) => String(d).toLowerCase()));\n  const clash = approved.filter((l) => other.has(String(l.domain || domainOf(l.email)).toLowerCase()));\n  if (clash.length) failures.push({ check: 'No lead contacted in another Live campaign', count: clash.length, detail: clash.map((l) => l.domain).join(', ') });\n  if (!ctx.gmailOk) failures.push({ check: 'Gmail credential works', count: 1, detail: ctx.gmailError || 'Gmail profile check failed' });\n  return { ok: failures.length === 0, failures, approvedLeads: approved };\n}\n\n/** sequence_step=1, next_send_at = next slot, subject A/B alternately. */\nfunction buildLaunchPlan(approvedLeads, firstSlotIso, campaign) {\n  return approvedLeads.map((l, i) => ({\n    id: l.id,\n    fields: {\n      sequence_step: 1,\n      next_send_at: firstSlotIso,\n      subject_variant: i % 2 === 0 ? 'A' : 'B',\n    },\n  }));\n}\n\nfunction failureText(campaignName, failures) {\n  return `:no_entry: Campaign *${campaignName}* was not launched. ${failures.length} check(s) failed:\\n` +\n    failures.map((f) => `• ${f.check} – ${f.detail} (${f.count})`).join('\\n') + '\\nStatus is back to Ready.';\n}\n\nconst launchChecksApi = { runPrelaunchChecks, buildLaunchPlan, failureText };\nif (typeof module !== 'undefined' && module.exports) module.exports = launchChecksApi;\n\n  return module.exports;\n})();\n\nM.guard = (function () {\n  const module = { exports: {} };\n/**\n * guard.js – the safety guard that runs right before every email-sending node.\n * - Blocks the run (throws) if any recipient is not on TEST_RECIPIENT_ALLOWLIST.\n * - An empty allowlist blocks everything in test mode.\n * - DEMO_MODE: rewrites To to TEST_PROSPECT_EMAIL, drops Cc/Bcc, prefixes the subject with [TEST].\n * - Real mode (DEMO_MODE=false) additionally needs ALLOW_REAL_SENDING=true, otherwise it blocks.\n */\nclass GuardError extends Error {\n  constructor(message, details) {\n    super(message);\n    this.name = 'GuardError';\n    this.details = details || {};\n  }\n}\n\nfunction norm(e) {\n  return String(e || '').trim().toLowerCase();\n}\n\nfunction splitAddresses(v) {\n  if (!v) return [];\n  const list = Array.isArray(v) ? v : String(v).split(/[,;]/);\n  return list\n    .map((x) => {\n      const m = String(x).match(/<([^>]+)>/);\n      return norm(m ? m[1] : x);\n    })\n    .filter(Boolean);\n}\n\nfunction guardEmail(msg, cfg) {\n  if (!msg || typeof msg !== 'object') throw new GuardError('Guard: no message');\n  if (!cfg || typeof cfg !== 'object') throw new GuardError('Guard: no config');\n  const original = { to: splitAddresses(msg.to), cc: splitAddresses(msg.cc), bcc: splitAddresses(msg.bcc) };\n  if (!original.to.length) throw new GuardError('Guard: message has no recipient');\n  const out = Object.assign({}, msg);\n  if (cfg.demoMode) {\n    if (!cfg.testProspectEmail) throw new GuardError('Guard: DEMO_MODE is on but TEST_PROSPECT_EMAIL is empty');\n    out.to = cfg.testProspectEmail;\n    out.cc = '';\n    out.bcc = '';\n    const subj = String(msg.subject || '');\n    out.subject = /^\\[TEST\\]/.test(subj) ? subj : '[TEST] ' + subj;\n    out.original_to = original.to.join(', ');\n  } else if (!cfg.allowRealSending) {\n    throw new GuardError('Guard: DEMO_MODE is off but ALLOW_REAL_SENDING is not true – blocked', { to: original.to });\n  }\n  const allow = (cfg.allowlist || []).map(norm);\n  const finalRecipients = [].concat(splitAddresses(out.to), splitAddresses(out.cc), splitAddresses(out.bcc));\n  if (cfg.demoMode || allow.length) {\n    if (!allow.length) throw new GuardError('Guard: TEST_RECIPIENT_ALLOWLIST is empty – every send is blocked');\n    const bad = finalRecipients.filter((r) => !allow.includes(r));\n    if (bad.length) throw new GuardError('Guard: recipient not on allowlist: ' + bad.join(', '), { blocked: bad });\n  }\n  out.guard = { passed: true, demoMode: !!cfg.demoMode, recipients: finalRecipients, checkedAt: new Date().toISOString() };\n  return out;\n}\n\n/** Blocklist check: entries are {value} (email or domain) or plain strings. */\nfunction isBlocked(email, blocklist) {\n  const e = norm(email);\n  if (!e) return false;\n  const domain = e.split('@')[1] || '';\n  return (blocklist || []).some((entry) => {\n    const v = norm(typeof entry === 'string' ? entry : entry && (entry.value || entry.email || entry.domain));\n    if (!v) return false;\n    if (v.includes('@')) return v === e;\n    return v === domain || domain.endsWith('.' + v);\n  });\n}\n\nconst guardApi = { GuardError, guardEmail, isBlocked, splitAddresses };\nif (typeof module !== 'undefined' && module.exports) module.exports = guardApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst cfg = $('Config').first().json.cfg;\nconst c = $('Pick campaign').first().json.campaign;\nconst live = new Set(M.airtable.fromItems($('Live campaigns').all()).filter((x) => x.id !== c.id).map((x) => x.id));\nconst contactedDomains = M.airtable.fromItems($('Contacted leads').all()).filter((l) => live.has(l.campaign_record_id)).map((l) => l.domain);\nconst g = $input.first().json;\nconst gmailOk = Number(g.statusCode) === 200 && !!(g.body && g.body.emailAddress);\nconst r = M.launchChecks.runPrelaunchChecks({\n  campaign: c, leads: M.airtable.fromItems($('Campaign leads').all()), emails: M.airtable.fromItems($('Campaign emails').all()),\n  blocklist: M.airtable.fromItems($('Blocklist').all()), otherLiveContactedDomains: contactedDomains, gmailOk,\n  gmailError: gmailOk ? '' : 'Gmail profile check returned ' + (g.statusCode || g.error && g.error.message || 'an error'),\n  testMode: !!cfg.testLeadLimit || cfg.demoMode, isBlocked: M.guard.isBlocked,\n});\nreturn [{ json: { ok: r.ok, failures: r.failures, approvedIds: r.approvedLeads.map((l) => l.id), campaign: c } }];\n"
+      }
+    },
+    {
+      "id": "bab6ed8d-b17e-4bd7-85df-ad955f27b494",
+      "name": "All checks pass?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2640,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ed42e4da-e362-4201-8c2c-b8a73e7d725b",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "33e3f297-3a91-4cb4-85a8-a797f55c3fcf",
+      "name": "Launch plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.launchChecks = (function () {\n  const module = { exports: {} };\n/**\n * launchChecks.js – Module 5 pre-launch checks and the launch plan.\n */\nfunction domainOf(email) {\n  return String(email || '').split('@')[1] || '';\n}\n\n/**\n * ctx: {campaign, leads, emails, blocklist, otherLiveContactedDomains, gmailOk, testMode, isBlocked}\n * returns {ok, failures:[{check, count, detail}], approvedLeads}\n */\nfunction runPrelaunchChecks(ctx) {\n  const failures = [];\n  const minLeads = ctx.testMode ? 5 : 20;\n  const approved = (ctx.leads || []).filter((l) => l.status === 'Approved');\n  if (approved.length < minLeads) failures.push({ check: `At least ${minLeads} Approved leads`, count: approved.length, detail: `${approved.length} approved` });\n  const emailsByLead = {};\n  (ctx.emails || []).forEach((e) => {\n    const id = Array.isArray(e.lead) ? e.lead[0] : e.lead_record_id || e.lead;\n    (emailsByLead[id] = emailsByLead[id] || []).push(e);\n  });\n  const badQuality = approved.filter((l) => {\n    const es = emailsByLead[l.id] || [];\n    return es.length !== 4 || es.some((e) => !e.approved || Number(e.quality_score) < 80);\n  });\n  if (badQuality.length) failures.push({ check: 'Every sequence passed the AI quality check', count: badQuality.length, detail: badQuality.map((l) => l.company_name).join(', ') });\n  const blocked = approved.filter((l) => ctx.isBlocked(l.email, ctx.blocklist) || ctx.isBlocked('x@' + (l.domain || domainOf(l.email)), ctx.blocklist));\n  if (blocked.length) failures.push({ check: 'No lead on the Blocklist', count: blocked.length, detail: blocked.map((l) => l.email).join(', ') });\n  const other = new Set((ctx.otherLiveContactedDomains || []).map((d) => String(d).toLowerCase()));\n  const clash = approved.filter((l) => other.has(String(l.domain || domainOf(l.email)).toLowerCase()));\n  if (clash.length) failures.push({ check: 'No lead contacted in another Live campaign', count: clash.length, detail: clash.map((l) => l.domain).join(', ') });\n  if (!ctx.gmailOk) failures.push({ check: 'Gmail credential works', count: 1, detail: ctx.gmailError || 'Gmail profile check failed' });\n  return { ok: failures.length === 0, failures, approvedLeads: approved };\n}\n\n/** sequence_step=1, next_send_at = next slot, subject A/B alternately. */\nfunction buildLaunchPlan(approvedLeads, firstSlotIso, campaign) {\n  return approvedLeads.map((l, i) => ({\n    id: l.id,\n    fields: {\n      sequence_step: 1,\n      next_send_at: firstSlotIso,\n      subject_variant: i % 2 === 0 ? 'A' : 'B',\n    },\n  }));\n}\n\nfunction failureText(campaignName, failures) {\n  return `:no_entry: Campaign *${campaignName}* was not launched. ${failures.length} check(s) failed:\\n` +\n    failures.map((f) => `• ${f.check} – ${f.detail} (${f.count})`).join('\\n') + '\\nStatus is back to Ready.';\n}\n\nconst launchChecksApi = { runPrelaunchChecks, buildLaunchPlan, failureText };\nif (typeof module !== 'undefined' && module.exports) module.exports = launchChecksApi;\n\n  return module.exports;\n})();\n\nM.schedule = (function () {\n  const module = { exports: {} };\n/**\n * schedule.js – send timing in Europe/Berlin without external libraries.\n * Steps 1–4 go out on day 0, 3, 7, 14 counted from the first send.\n * Real mode: only Mon–Fri 08:00–17:00 Berlin time (weekends skipped).\n * DEMO_MODE: days become minutes and the send window is ignored.\n */\nconst STEP_OFFSETS = { 1: 0, 2: 3, 3: 7, 4: 14 };\nconst TZ = 'Europe/Berlin';\nconst WINDOW = { startHour: 8, endHour: 17 };\nconst WEEKDAYS = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };\n\nfunction berlinParts(date) {\n  const d = new Date(date);\n  const fmt = new Intl.DateTimeFormat('en-GB', {\n    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short', hourCycle: 'h23',\n  });\n  const p = {};\n  fmt.formatToParts(d).forEach((x) => (p[x.type] = x.value));\n  return {\n    year: +p.year, month: +p.month, day: +p.day, hour: +p.hour, minute: +p.minute, second: +p.second, weekday: WEEKDAYS[p.weekday],\n  };\n}\n\n/** Converts a Berlin wall-clock time to a UTC Date (handles DST). */\nfunction berlinToUtc(year, month, day, hour, minute) {\n  let guess = Date.UTC(year, month - 1, day, hour, minute || 0);\n  for (let i = 0; i < 2; i++) {\n    const p = berlinParts(guess);\n    const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);\n    const offset = asUtc - guess;\n    guess = Date.UTC(year, month - 1, day, hour, minute || 0) - offset;\n  }\n  return new Date(guess);\n}\n\nfunction isSendWindow(date) {\n  const p = berlinParts(date);\n  return p.weekday <= 5 && p.hour >= WINDOW.startHour && p.hour < WINDOW.endHour;\n}\n\n/** The given time if it is inside the send window, else the next weekday 08:00 Berlin. */\nfunction nextSendSlot(date, opts) {\n  const d = new Date(date);\n  if (opts && opts.demoMode) return d;\n  if (isSendWindow(d)) return d;\n  let p = berlinParts(d);\n  // start from today 08:00 if before the window on a weekday, else move day by day\n  let cand = berlinToUtc(p.year, p.month, p.day, WINDOW.startHour, 0);\n  if (cand <= d) {\n    const next = new Date(Date.UTC(p.year, p.month - 1, p.day + 1, 12));\n    p = berlinParts(next);\n    cand = berlinToUtc(p.year, p.month, p.day, WINDOW.startHour, 0);\n  }\n  for (let i = 0; i < 7 && berlinParts(cand).weekday > 5; i++) {\n    const q = berlinParts(cand);\n    const next = new Date(Date.UTC(q.year, q.month - 1, q.day + 1, 12));\n    const r = berlinParts(next);\n    cand = berlinToUtc(r.year, r.month, r.day, WINDOW.startHour, 0);\n  }\n  return cand;\n}\n\n/** When step `step` is due, counted from the first send. */\nfunction sendAtForStep(firstSentAt, step, opts) {\n  const offset = STEP_OFFSETS[step];\n  if (offset === undefined) throw new Error('unknown step ' + step);\n  const first = new Date(firstSentAt);\n  if (opts && opts.demoMode) return new Date(first.getTime() + offset * 60 * 1000);\n  const p = berlinParts(first);\n  const target = berlinToUtc(p.year, p.month, p.day + offset, p.hour, p.minute);\n  return nextSendSlot(target, opts);\n}\n\n/** Wait between two sends: 60–180 s real, 2–5 s demo, 0 when mocked. */\nfunction randomDelaySeconds(opts, rand) {\n  const r = typeof rand === 'number' ? rand : Math.random();\n  if (opts && opts.mock) return 0;\n  if (opts && opts.demoMode) return 2 + Math.round(r * 3);\n  return 60 + Math.round(r * 120);\n}\n\n/** Berlin calendar date \"YYYY-MM-DD\" (for daily counters). */\nfunction berlinDate(date) {\n  const p = berlinParts(date);\n  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;\n}\n\nfunction addDays(date, days) {\n  return new Date(new Date(date).getTime() + days * 86400000);\n}\n\nconst scheduleApi = { STEP_OFFSETS, berlinParts, berlinToUtc, isSendWindow, nextSendSlot, sendAtForStep, randomDelaySeconds, berlinDate, addDays };\nif (typeof module !== 'undefined' && module.exports) module.exports = scheduleApi;\n\n  return module.exports;\n})();\n\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst cfg = $('Config').first().json.cfg;\nconst r = $('Pre-launch checks').first().json;\nconst leads = M.airtable.fromItems($('Campaign leads').all()).filter((l) => r.approvedIds.includes(l.id));\nconst slot = M.schedule.nextSendSlot(new Date(), { demoMode: cfg.demoMode }).toISOString();\nconst plan = M.launchChecks.buildLaunchPlan(leads, slot, r.campaign);\nreturn M.airtable.updateBatches(plan).map((b) => ({ json: Object.assign(b, { slot, count: leads.length }) }));\n"
+      }
+    },
+    {
+      "id": "d27d70a8-a396-4f1b-814a-bb60f734170e",
+      "name": "Schedule first emails",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        0
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records, typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Leads (batches of 10)"
+    },
+    {
+      "id": "4844b39f-2377-4dfe-81be-9ae4f93c72df",
+      "name": "Campaign Live",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const r = $('Pre-launch checks').first().json;\nconst p = $('Launch plan').first().json;\nreturn [{ json: { records: [{ id: r.campaign.id, fields: { status: 'Live', launched_at: new Date().toISOString(), launch_failures: null } }],\n  slack: { ref: r.campaign.id, text: ':white_check_mark: Campaign *' + r.campaign.name + '* is live: ' + p.count + ' leads, first emails go out ' + (new Date(p.slot) - Date.now() < 3600000 ? 'today' : 'at ' + p.slot) + '.' } } }];\n"
+      }
+    },
+    {
+      "id": "265306f2-aed1-4619-8f44-d02468f939b7",
+      "name": "Set Live",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3600,
+        0
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records, typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Campaigns (batches of 10)"
+    },
+    {
+      "id": "3e28e362-762d-4dae-895f-625b92e17ce9",
+      "name": "Live message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3840,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: $('Campaign Live').first().json.slack }];\n"
+      }
+    },
+    {
+      "id": "6ad601aa-35fe-40ce-886b-d2e51029b08b",
+      "name": "Post Live",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4080,
+        0
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf15SlackNtfy",
+          "mode": "id",
+          "cachedResultName": "15_slack_notify"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "50045405-2d9e-4839-8d2d-4017f159947d",
+      "name": "Start sending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4320,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.n8nInternalUrl }}/webhook/sending-run",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ kicked_by: $workflow.name }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "notes": "Starts sending-run right away (the schedule is the fallback)"
+    },
+    {
+      "id": "c60b2ecb-70db-418e-81bd-0b2feac3d830",
+      "name": "Failed checks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        360
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.launchChecks = (function () {\n  const module = { exports: {} };\n/**\n * launchChecks.js – Module 5 pre-launch checks and the launch plan.\n */\nfunction domainOf(email) {\n  return String(email || '').split('@')[1] || '';\n}\n\n/**\n * ctx: {campaign, leads, emails, blocklist, otherLiveContactedDomains, gmailOk, testMode, isBlocked}\n * returns {ok, failures:[{check, count, detail}], approvedLeads}\n */\nfunction runPrelaunchChecks(ctx) {\n  const failures = [];\n  const minLeads = ctx.testMode ? 5 : 20;\n  const approved = (ctx.leads || []).filter((l) => l.status === 'Approved');\n  if (approved.length < minLeads) failures.push({ check: `At least ${minLeads} Approved leads`, count: approved.length, detail: `${approved.length} approved` });\n  const emailsByLead = {};\n  (ctx.emails || []).forEach((e) => {\n    const id = Array.isArray(e.lead) ? e.lead[0] : e.lead_record_id || e.lead;\n    (emailsByLead[id] = emailsByLead[id] || []).push(e);\n  });\n  const badQuality = approved.filter((l) => {\n    const es = emailsByLead[l.id] || [];\n    return es.length !== 4 || es.some((e) => !e.approved || Number(e.quality_score) < 80);\n  });\n  if (badQuality.length) failures.push({ check: 'Every sequence passed the AI quality check', count: badQuality.length, detail: badQuality.map((l) => l.company_name).join(', ') });\n  const blocked = approved.filter((l) => ctx.isBlocked(l.email, ctx.blocklist) || ctx.isBlocked('x@' + (l.domain || domainOf(l.email)), ctx.blocklist));\n  if (blocked.length) failures.push({ check: 'No lead on the Blocklist', count: blocked.length, detail: blocked.map((l) => l.email).join(', ') });\n  const other = new Set((ctx.otherLiveContactedDomains || []).map((d) => String(d).toLowerCase()));\n  const clash = approved.filter((l) => other.has(String(l.domain || domainOf(l.email)).toLowerCase()));\n  if (clash.length) failures.push({ check: 'No lead contacted in another Live campaign', count: clash.length, detail: clash.map((l) => l.domain).join(', ') });\n  if (!ctx.gmailOk) failures.push({ check: 'Gmail credential works', count: 1, detail: ctx.gmailError || 'Gmail profile check failed' });\n  return { ok: failures.length === 0, failures, approvedLeads: approved };\n}\n\n/** sequence_step=1, next_send_at = next slot, subject A/B alternately. */\nfunction buildLaunchPlan(approvedLeads, firstSlotIso, campaign) {\n  return approvedLeads.map((l, i) => ({\n    id: l.id,\n    fields: {\n      sequence_step: 1,\n      next_send_at: firstSlotIso,\n      subject_variant: i % 2 === 0 ? 'A' : 'B',\n    },\n  }));\n}\n\nfunction failureText(campaignName, failures) {\n  return `:no_entry: Campaign *${campaignName}* was not launched. ${failures.length} check(s) failed:\\n` +\n    failures.map((f) => `• ${f.check} – ${f.detail} (${f.count})`).join('\\n') + '\\nStatus is back to Ready.';\n}\n\nconst launchChecksApi = { runPrelaunchChecks, buildLaunchPlan, failureText };\nif (typeof module !== 'undefined' && module.exports) module.exports = launchChecksApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst r = $('Pre-launch checks').first().json;\nreturn [{ json: { records: [{ id: r.campaign.id, fields: { status: 'Ready', launch_failures: r.failures.map((f) => f.check + ': ' + f.detail + ' (' + f.count + ')').join('\\n') } }],\n  slack: { ref: r.campaign.id, text: M.launchChecks.failureText(r.campaign.name, r.failures) } } }];\n"
+      }
+    },
+    {
+      "id": "2bec5faf-24f4-49e6-8629-4862fe8d1372",
+      "name": "Back to Ready",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        360
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records, typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Campaigns (batches of 10)"
+    },
+    {
+      "id": "c1f8b468-785b-4bae-8f07-84d070dbbb86",
+      "name": "Failure message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        360
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: $('Failed checks').first().json.slack }];\n"
+      }
+    },
+    {
+      "id": "4641dee1-4fee-4f59-8b11-1fe83402b4c0",
+      "name": "Post failures",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3600,
+        360
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf15SlackNtfy",
+          "mode": "id",
+          "cachedResultName": "15_slack_notify"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "Launch webhook": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 5 minutes": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Campaigns to launch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaigns to launch": {
+      "main": [
+        [
+          {
+            "node": "Pick campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick campaign": {
+      "main": [
+        [
+          {
+            "node": "Campaign leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaign leads": {
+      "main": [
+        [
+          {
+            "node": "Campaign emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaign emails": {
+      "main": [
+        [
+          {
+            "node": "Blocklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Blocklist": {
+      "main": [
+        [
+          {
+            "node": "Live campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live campaigns": {
+      "main": [
+        [
+          {
+            "node": "Contacted leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contacted leads": {
+      "main": [
+        [
+          {
+            "node": "Mock?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock?": {
+      "main": [
+        [
+          {
+            "node": "Gmail profile (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gmail profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail profile (mock)": {
+      "main": [
+        [
+          {
+            "node": "Pre-launch checks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail profile": {
+      "main": [
+        [
+          {
+            "node": "Pre-launch checks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pre-launch checks": {
+      "main": [
+        [
+          {
+            "node": "All checks pass?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "All checks pass?": {
+      "main": [
+        [
+          {
+            "node": "Launch plan",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failed checks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Launch plan": {
+      "main": [
+        [
+          {
+            "node": "Schedule first emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule first emails": {
+      "main": [
+        [
+          {
+            "node": "Campaign Live",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaign Live": {
+      "main": [
+        [
+          {
+            "node": "Set Live",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Live": {
+      "main": [
+        [
+          {
+            "node": "Live message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live message": {
+      "main": [
+        [
+          {
+            "node": "Post Live",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Live": {
+      "main": [
+        [
+          {
+            "node": "Start sending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failed checks": {
+      "main": [
+        [
+          {
+            "node": "Back to Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Back to Ready": {
+      "main": [
+        [
+          {
+            "node": "Failure message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failure message": {
+      "main": [
+        [
+          {
+            "node": "Post failures",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "NxsWf00ErrorHndl"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "nexsaleFile": "05_campaign_launch",
+    "description": "Status Launch → 5 checks → Live (or back to Ready with the reasons in Slack)."
+  },
+  "pinData": {},
+  "tags": []
+}

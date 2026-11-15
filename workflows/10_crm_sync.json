@@ -1,0 +1,1119 @@
+{
+  "id": "NxsWf10CrmSync00",
+  "name": "Nexsale 10 – CRM sync (HubSpot)",
+  "active": false,
+  "versionId": "b512798d-76bf-4530-807a-12ac4f9491df",
+  "nodes": [
+    {
+      "id": "296e1ff3-dd22-4271-8352-7026b7a7bd0f",
+      "name": "Sync now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm-sync",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "4851190e-acc2-45b7-815f-65aef7bdaab3"
+    },
+    {
+      "id": "3f8c7630-9a9b-47be-8fb7-d2a5ccc21768",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b8fe2c96-fc25-40c8-84b7-fc3cd8fc0ee8",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.config = (function () {\n  const module = { exports: {} };\n/**\n * config.js – builds the runtime config for every workflow from environment variables.\n * Used by the first \"Config\" Code node in each workflow. Secrets are NOT copied into\n * the output (execution data is stored in n8n); HTTP nodes read tokens from $env directly.\n */\nfunction bool(v, dflt) {\n  if (v === undefined || v === null || v === '') return dflt;\n  return String(v).trim().toLowerCase() === 'true';\n}\n\nfunction parseList(v) {\n  return String(v || '')\n    .split(/[,;\\s]+/)\n    .map((s) => s.trim().toLowerCase())\n    .filter(Boolean);\n}\n\nfunction parseLimit(v, demoMode) {\n  if (v === undefined || v === null || v === '') return demoMode ? 10 : null;\n  if (String(v).trim().toLowerCase() === 'off') return null;\n  const n = parseInt(v, 10);\n  return Number.isFinite(n) && n > 0 ? n : 10;\n}\n\nfunction trimSlash(u) {\n  return String(u || '').replace(/\\/+$/, '');\n}\n\nfunction buildConfig(env) {\n  env = env || {};\n  // Safe defaults: demo mode ON unless explicitly \"false\".\n  const demoMode = bool(env.DEMO_MODE, true);\n  const mock = bool(env.MOCK_EXTERNAL, false);\n  const mockBase = trimSlash(env.MOCK_BASE_URL || 'http://host.docker.internal:8787');\n  const real = {\n    airtable: 'https://api.airtable.com/v0',\n    googlePlaces: 'https://places.googleapis.com/v1',\n    openai: 'https://api.openai.com/v1',\n    anthropic: 'https://api.anthropic.com/v1',\n    slack: 'https://slack.com/api',\n    gmail: 'https://gmail.googleapis.com/gmail/v1',\n    hubspot: 'https://api.hubapi.com',\n    dns: 'https://dns.google',\n    web: '',\n    calendly: 'https://api.calendly.com',\n  };\n  const mocked = {\n    airtable: mockBase + '/airtable/v0',\n    googlePlaces: mockBase + '/google/v1',\n    openai: mockBase + '/ai/openai/v1',\n    anthropic: mockBase + '/ai/anthropic/v1',\n    slack: mockBase + '/slack/api',\n    gmail: mockBase + '/gmail/v1',\n    hubspot: mockBase + '/hubspot',\n    dns: mockBase + '/dns',\n    web: mockBase + '/web',\n    calendly: mockBase + '/calendly',\n  };\n  const urls = mock ? mocked : real;\n  const aiProvider = String(env.AI_PROVIDER || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : 'openai';\n  const allowlist = parseList(env.TEST_RECIPIENT_ALLOWLIST);\n  const conf = parseFloat(env.AUTO_REPLY_MIN_CONFIDENCE);\n  return {\n    demoMode,\n    mock,\n    allowRealSending: !demoMode && bool(env.ALLOW_REAL_SENDING, false),\n    // DEMO_MODE sends from an every-minute ticker; the test stack turns it off and drives sends by webhook\n    demoTicker: !bool(env.DISABLE_DEMO_TICKER, false),\n    // cap per run so one run always finishes before the next tick (no overlapping runs)\n    maxSendsPerRun: demoMode ? 6 : 5,\n    testLeadLimit: parseLimit(env.TEST_LEAD_LIMIT, demoMode),\n    allowlist,\n    testProspectEmail: String(env.TEST_PROSPECT_EMAIL || '').trim().toLowerCase(),\n    senderEmail: String(env.SENDER_EMAIL || '').trim().toLowerCase(),\n    autoReplyMinConfidence: Number.isFinite(conf) ? conf : 0.85,\n    unsureConfidence: 0.7,\n    timezone: 'Europe/Berlin',\n    airtableBaseId: env.AIRTABLE_BASE_ID || '',\n    airtableUrl: urls.airtable + '/' + (env.AIRTABLE_BASE_ID || ''),\n    googlePlacesUrl: urls.googlePlaces,\n    aiProvider,\n    aiModel: env.AI_MODEL || (aiProvider === 'anthropic' ? 'claude-haiku-5-5' : 'gpt-4o-mini'),\n    aiUrl: aiProvider === 'anthropic' ? urls.anthropic + '/messages' : urls.openai + '/chat/completions',\n    slackApiUrl: urls.slack,\n    slackChannel: env.SLACK_CHANNEL || '#leads',\n    gmailUrl: urls.gmail,\n    hubspotUrl: urls.hubspot,\n    dnsUrl: urls.dns,\n    webProxyUrl: urls.web,\n    calendlyLink: env.CALENDLY_LINK || '',\n    calendlyApiUrl: urls.calendly,\n    n8nBaseUrl: trimSlash(env.WEBHOOK_URL || 'http://localhost:5678'),\n    n8nInternalUrl: trimSlash(env.N8N_INTERNAL_URL || 'http://localhost:5678'),\n    interfaceUrl: env.AIRTABLE_INTERFACE_URL || (env.AIRTABLE_BASE_ID ? 'https://airtable.com/' + env.AIRTABLE_BASE_ID : ''),\n    googleCostPerRequestEur: 0.032,\n  };\n}\n\n/** URL to fetch a company web page; in mock mode served by the mock server. */\nfunction webUrl(cfg, domain, path) {\n  path = path || '/';\n  if (cfg.webProxyUrl) return cfg.webProxyUrl + '/' + domain + path;\n  return 'https://' + domain + path;\n}\n\nconst configApi = { buildConfig, webUrl, parseList, parseLimit };\nif (typeof module !== 'undefined' && module.exports) module.exports = configApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst trigger = $input.all().map((i) => i.json);\n// test stack only: schedules are switched off so tests drive every module through its webhook\nconst scheduled = trigger.length > 0 && trigger[0] && trigger[0]['Readable date'] !== undefined;\nif (scheduled && String($env.DISABLE_SCHEDULES).toLowerCase() === 'true') return [];\nreturn [{ json: { cfg: M.config.buildConfig($env), trigger, startedAt: new Date().toISOString() } }];\n"
+      },
+      "notes": "Builds runtime config from env (no secrets in output)."
+    },
+    {
+      "id": "063a5d25-1708-4e3a-873f-ce6c2fe95432",
+      "name": "Leads to sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 1,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"AND(OR({status}='Interested',{status}='Meeting booked',{status}='Meeting held',{status}='No-show',AND(OR({status}='Not interested',{status}='Unsubscribed'),{hubspot_deal_id}!='')),{crm_synced_status}!={status})\" }}"
+            },
+            {
+              "name": "maxRecords",
+              "value": "10"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Not interested / Unsubscribed only when a deal already exists: closes it, never creates one"
+    },
+    {
+      "id": "52654c1b-d488-4e60-81d7-077ae331b112",
+      "name": "Meetings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Meetings",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{status}!='Cancelled'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Meetings"
+    },
+    {
+      "id": "23ffa71e-448a-428e-8215-49a7d031c4be",
+      "name": "Campaigns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Campaigns"
+    },
+    {
+      "id": "3ae04ec7-8bc4-4c7d-8881-b9af7da83416",
+      "name": "Clients",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Clients",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Clients"
+    },
+    {
+      "id": "e2360c8f-2ebe-4480-844c-58f676694407",
+      "name": "Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\nM.crm = (function () {\n  const module = { exports: {} };\n/**\n * crm.js – Module 10 HubSpot payloads (CRM v3). Idempotent: search first, then create or update.\n */\nconst DEAL_STAGES = {\n  Interested: 'appointmentscheduled',\n  'Meeting booked': 'appointmentscheduled',\n  'Meeting held': 'qualifiedtobuy',\n  'No-show': 'closedlost',\n  // The lead withdrew after showing interest: the open deal is closed, never left hanging.\n  'Not interested': 'closedlost',\n  Unsubscribed: 'closedlost',\n};\n\n/** Statuses that close an existing deal. They never create a new one (only leads that already have a deal are synced). */\nconst CLOSING_STATUSES = ['Not interested', 'Unsubscribed'];\n\nfunction isClosing(status) {\n  return CLOSING_STATUSES.includes(status);\n}\n\n/** Readable reason for HubSpot's standard closed_lost_reason property. */\nfunction closedLostReason(lead) {\n  if (lead.status === 'Unsubscribed') return 'Lead hat sich nach Interesse abgemeldet (STOP)';\n  if (lead.status === 'Not interested') return 'Lead hat nach Interesse abgesagt';\n  if (lead.status === 'No-show') return 'Lead ist nicht zum Termin erschienen';\n  return '';\n}\n\nfunction splitName(full) {\n  const parts = String(full || '').trim().split(/\\s+/).filter(Boolean);\n  if (!parts.length) return { firstname: '', lastname: '' };\n  if (parts.length === 1) return { firstname: '', lastname: parts[0] };\n  return { firstname: parts.slice(0, -1).join(' '), lastname: parts[parts.length - 1] };\n}\n\nfunction contactSearch(email) {\n  return { filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: String(email).toLowerCase() }] }], properties: ['email', 'firstname', 'lastname'], limit: 1 };\n}\n\nfunction companySearch(domain) {\n  return { filterGroups: [{ filters: [{ propertyName: 'domain', operator: 'EQ', value: String(domain).toLowerCase() }] }], properties: ['domain', 'name'], limit: 1 };\n}\n\nfunction dealSearch(dealName) {\n  return { filterGroups: [{ filters: [{ propertyName: 'dealname', operator: 'EQ', value: dealName }] }], properties: ['dealname', 'dealstage'], limit: 1 };\n}\n\n/** Standard properties only (a fresh HubSpot portal rejects unknown custom properties).\n *  lifecyclestage is set on create only: HubSpot refuses to move it backwards on update. */\nfunction contactProps(lead, opts) {\n  opts = opts || {};\n  const n = splitName(lead.contact_name);\n  const properties = {\n    email: String(lead.email || '').toLowerCase(),\n    firstname: n.firstname,\n    lastname: n.lastname,\n    company: lead.company_name || '',\n    phone: lead.phone || '',\n    website: lead.website || '',\n    hs_lead_status: isClosing(lead.status) ? 'UNQUALIFIED' : 'IN_PROGRESS',\n  };\n  if (opts.create) properties.lifecyclestage = 'lead';\n  return { properties };\n}\n\nfunction companyProps(lead) {\n  return { properties: { name: lead.company_name || lead.domain, domain: lead.domain || '', phone: lead.phone || '', city: lead.city || '' } };\n}\n\nfunction dealName(lead) {\n  return `${lead.company_name || lead.domain} – Erstgespräch (lead ${lead.lead_id || lead.id})`;\n}\n\nfunction dealProps(lead, meeting, ownerId) {\n  const props = {\n    dealname: dealName(lead),\n    pipeline: 'default',\n    dealstage: DEAL_STAGES[lead.status] || DEAL_STAGES['Meeting booked'],\n  };\n  if (meeting && meeting.start_time) props.closedate = new Date(meeting.start_time).toISOString();\n  const reason = closedLostReason(lead);\n  if (reason) {\n    props.closed_lost_reason = reason;\n    if (isClosing(lead.status)) props.closedate = new Date().toISOString();\n  }\n  if (ownerId) props.hubspot_owner_id = String(ownerId);\n  return { properties: props };\n}\n\nfunction firstResultId(searchResponse) {\n  const r = searchResponse && Array.isArray(searchResponse.results) ? searchResponse.results[0] : null;\n  return r ? String(r.id) : null;\n}\n\n/** Decide create vs update (PATCH) for an object. */\nfunction upsertPlan(existingId, objectType, props) {\n  return existingId\n    ? { method: 'PATCH', path: `/crm/v3/objects/${objectType}/${existingId}`, body: props }\n    : { method: 'POST', path: `/crm/v3/objects/${objectType}`, body: props };\n}\n\n/** Note on the deal: source campaign, status change and the email thread summary. */\nfunction noteProps(summary, timestamp, dealId) {\n  const note = { properties: { hs_note_body: String(summary || '').slice(0, 5000), hs_timestamp: new Date(timestamp || Date.now()).toISOString() } };\n  if (dealId) note.associations = [{ to: { id: String(dealId) }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 214 }] }];\n  return note;\n}\n\nconst crmApi = { DEAL_STAGES, CLOSING_STATUSES, isClosing, closedLostReason, splitName, contactSearch, companySearch, dealSearch, contactProps, companyProps, dealProps, dealName, firstResultId, upsertPlan, noteProps };\nif (typeof module !== 'undefined' && module.exports) module.exports = crmApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst leads = M.airtable.fromItems($('Leads to sync').all());\nconst meetings = M.airtable.fromItems($('Meetings').all());\nconst camps = M.airtable.fromItems($('Campaigns').all());\nconst clients = M.airtable.fromItems($('Clients').all());\nreturn leads.map((l) => {\n  const c = camps.find((x) => x.id === l.campaign_record_id) || {};\n  const client = clients.find((k) => k.id === c.client_record_id) || clients[0] || {};\n  const m = meetings.filter((x) => x.lead_record_id === l.id).sort((a, b) => String(b.start_time).localeCompare(String(a.start_time)))[0] || null;\n  return { json: { lead: l, meeting: m, campaign: c.name || l.lead_type || '', owner: client.hubspot_owner_id || '', dealname: M.crm.dealName(l) } };\n});\n"
+      }
+    },
+    {
+      "id": "fc63d686-8925-4cc8-8e0d-9194c9d3277d",
+      "name": "Search contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.hubspotUrl }}/crm/v3/objects/contacts/search",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 150
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUBSPOT_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: String($json.lead.email).toLowerCase() }] }], limit: 1 }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "f2752582-ef9b-4bdd-8068-ec775f1a834c",
+      "name": "Contact upsert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.crm = (function () {\n  const module = { exports: {} };\n/**\n * crm.js – Module 10 HubSpot payloads (CRM v3). Idempotent: search first, then create or update.\n */\nconst DEAL_STAGES = {\n  Interested: 'appointmentscheduled',\n  'Meeting booked': 'appointmentscheduled',\n  'Meeting held': 'qualifiedtobuy',\n  'No-show': 'closedlost',\n  // The lead withdrew after showing interest: the open deal is closed, never left hanging.\n  'Not interested': 'closedlost',\n  Unsubscribed: 'closedlost',\n};\n\n/** Statuses that close an existing deal. They never create a new one (only leads that already have a deal are synced). */\nconst CLOSING_STATUSES = ['Not interested', 'Unsubscribed'];\n\nfunction isClosing(status) {\n  return CLOSING_STATUSES.includes(status);\n}\n\n/** Readable reason for HubSpot's standard closed_lost_reason property. */\nfunction closedLostReason(lead) {\n  if (lead.status === 'Unsubscribed') return 'Lead hat sich nach Interesse abgemeldet (STOP)';\n  if (lead.status === 'Not interested') return 'Lead hat nach Interesse abgesagt';\n  if (lead.status === 'No-show') return 'Lead ist nicht zum Termin erschienen';\n  return '';\n}\n\nfunction splitName(full) {\n  const parts = String(full || '').trim().split(/\\s+/).filter(Boolean);\n  if (!parts.length) return { firstname: '', lastname: '' };\n  if (parts.length === 1) return { firstname: '', lastname: parts[0] };\n  return { firstname: parts.slice(0, -1).join(' '), lastname: parts[parts.length - 1] };\n}\n\nfunction contactSearch(email) {\n  return { filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: String(email).toLowerCase() }] }], properties: ['email', 'firstname', 'lastname'], limit: 1 };\n}\n\nfunction companySearch(domain) {\n  return { filterGroups: [{ filters: [{ propertyName: 'domain', operator: 'EQ', value: String(domain).toLowerCase() }] }], properties: ['domain', 'name'], limit: 1 };\n}\n\nfunction dealSearch(dealName) {\n  return { filterGroups: [{ filters: [{ propertyName: 'dealname', operator: 'EQ', value: dealName }] }], properties: ['dealname', 'dealstage'], limit: 1 };\n}\n\n/** Standard properties only (a fresh HubSpot portal rejects unknown custom properties).\n *  lifecyclestage is set on create only: HubSpot refuses to move it backwards on update. */\nfunction contactProps(lead, opts) {\n  opts = opts || {};\n  const n = splitName(lead.contact_name);\n  const properties = {\n    email: String(lead.email || '').toLowerCase(),\n    firstname: n.firstname,\n    lastname: n.lastname,\n    company: lead.company_name || '',\n    phone: lead.phone || '',\n    website: lead.website || '',\n    hs_lead_status: isClosing(lead.status) ? 'UNQUALIFIED' : 'IN_PROGRESS',\n  };\n  if (opts.create) properties.lifecyclestage = 'lead';\n  return { properties };\n}\n\nfunction companyProps(lead) {\n  return { properties: { name: lead.company_name || lead.domain, domain: lead.domain || '', phone: lead.phone || '', city: lead.city || '' } };\n}\n\nfunction dealName(lead) {\n  return `${lead.company_name || lead.domain} – Erstgespräch (lead ${lead.lead_id || lead.id})`;\n}\n\nfunction dealProps(lead, meeting, ownerId) {\n  const props = {\n    dealname: dealName(lead),\n    pipeline: 'default',\n    dealstage: DEAL_STAGES[lead.status] || DEAL_STAGES['Meeting booked'],\n  };\n  if (meeting && meeting.start_time) props.closedate = new Date(meeting.start_time).toISOString();\n  const reason = closedLostReason(lead);\n  if (reason) {\n    props.closed_lost_reason = reason;\n    if (isClosing(lead.status)) props.closedate = new Date().toISOString();\n  }\n  if (ownerId) props.hubspot_owner_id = String(ownerId);\n  return { properties: props };\n}\n\nfunction firstResultId(searchResponse) {\n  const r = searchResponse && Array.isArray(searchResponse.results) ? searchResponse.results[0] : null;\n  return r ? String(r.id) : null;\n}\n\n/** Decide create vs update (PATCH) for an object. */\nfunction upsertPlan(existingId, objectType, props) {\n  return existingId\n    ? { method: 'PATCH', path: `/crm/v3/objects/${objectType}/${existingId}`, body: props }\n    : { method: 'POST', path: `/crm/v3/objects/${objectType}`, body: props };\n}\n\n/** Note on the deal: source campaign, status change and the email thread summary. */\nfunction noteProps(summary, timestamp, dealId) {\n  const note = { properties: { hs_note_body: String(summary || '').slice(0, 5000), hs_timestamp: new Date(timestamp || Date.now()).toISOString() } };\n  if (dealId) note.associations = [{ to: { id: String(dealId) }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 214 }] }];\n  return note;\n}\n\nconst crmApi = { DEAL_STAGES, CLOSING_STATUSES, isClosing, closedLostReason, splitName, contactSearch, companySearch, dealSearch, contactProps, companyProps, dealProps, dealName, firstResultId, upsertPlan, noteProps };\nif (typeof module !== 'undefined' && module.exports) module.exports = crmApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst p = $('Plan').item.json;\nconst id = M.crm.firstResultId($json);\nreturn { json: M.crm.upsertPlan(id, 'contacts', M.crm.contactProps(p.lead, { create: !id })) };\n",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "5fd1e5a3-2f17-45db-86a5-0968c3cc12fd",
+      "name": "Upsert contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        0
+      ],
+      "parameters": {
+        "method": "={{ $json.method }}",
+        "url": "={{ $('Config').first().json.cfg.hubspotUrl }}{{ $json.path }}",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 150
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUBSPOT_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "5e3654a1-2751-4e6c-8c94-629df5337649",
+      "name": "Search company",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.hubspotUrl }}/crm/v3/objects/companies/search",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 150
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUBSPOT_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'domain', operator: 'EQ', value: String($('Plan').item.json.lead.domain || '').toLowerCase() }] }], limit: 1 }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "5700bdcd-8d73-4b4c-8b7a-62d802c6d8ca",
+      "name": "Company upsert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.crm = (function () {\n  const module = { exports: {} };\n/**\n * crm.js – Module 10 HubSpot payloads (CRM v3). Idempotent: search first, then create or update.\n */\nconst DEAL_STAGES = {\n  Interested: 'appointmentscheduled',\n  'Meeting booked': 'appointmentscheduled',\n  'Meeting held': 'qualifiedtobuy',\n  'No-show': 'closedlost',\n  // The lead withdrew after showing interest: the open deal is closed, never left hanging.\n  'Not interested': 'closedlost',\n  Unsubscribed: 'closedlost',\n};\n\n/** Statuses that close an existing deal. They never create a new one (only leads that already have a deal are synced). */\nconst CLOSING_STATUSES = ['Not interested', 'Unsubscribed'];\n\nfunction isClosing(status) {\n  return CLOSING_STATUSES.includes(status);\n}\n\n/** Readable reason for HubSpot's standard closed_lost_reason property. */\nfunction closedLostReason(lead) {\n  if (lead.status === 'Unsubscribed') return 'Lead hat sich nach Interesse abgemeldet (STOP)';\n  if (lead.status === 'Not interested') return 'Lead hat nach Interesse abgesagt';\n  if (lead.status === 'No-show') return 'Lead ist nicht zum Termin erschienen';\n  return '';\n}\n\nfunction splitName(full) {\n  const parts = String(full || '').trim().split(/\\s+/).filter(Boolean);\n  if (!parts.length) return { firstname: '', lastname: '' };\n  if (parts.length === 1) return { firstname: '', lastname: parts[0] };\n  return { firstname: parts.slice(0, -1).join(' '), lastname: parts[parts.length - 1] };\n}\n\nfunction contactSearch(email) {\n  return { filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: String(email).toLowerCase() }] }], properties: ['email', 'firstname', 'lastname'], limit: 1 };\n}\n\nfunction companySearch(domain) {\n  return { filterGroups: [{ filters: [{ propertyName: 'domain', operator: 'EQ', value: String(domain).toLowerCase() }] }], properties: ['domain', 'name'], limit: 1 };\n}\n\nfunction dealSearch(dealName) {\n  return { filterGroups: [{ filters: [{ propertyName: 'dealname', operator: 'EQ', value: dealName }] }], properties: ['dealname', 'dealstage'], limit: 1 };\n}\n\n/** Standard properties only (a fresh HubSpot portal rejects unknown custom properties).\n *  lifecyclestage is set on create only: HubSpot refuses to move it backwards on update. */\nfunction contactProps(lead, opts) {\n  opts = opts || {};\n  const n = splitName(lead.contact_name);\n  const properties = {\n    email: String(lead.email || '').toLowerCase(),\n    firstname: n.firstname,\n    lastname: n.lastname,\n    company: lead.company_name || '',\n    phone: lead.phone || '',\n    website: lead.website || '',\n    hs_lead_status: isClosing(lead.status) ? 'UNQUALIFIED' : 'IN_PROGRESS',\n  };\n  if (opts.create) properties.lifecyclestage = 'lead';\n  return { properties };\n}\n\nfunction companyProps(lead) {\n  return { properties: { name: lead.company_name || lead.domain, domain: lead.domain || '', phone: lead.phone || '', city: lead.city || '' } };\n}\n\nfunction dealName(lead) {\n  return `${lead.company_name || lead.domain} – Erstgespräch (lead ${lead.lead_id || lead.id})`;\n}\n\nfunction dealProps(lead, meeting, ownerId) {\n  const props = {\n    dealname: dealName(lead),\n    pipeline: 'default',\n    dealstage: DEAL_STAGES[lead.status] || DEAL_STAGES['Meeting booked'],\n  };\n  if (meeting && meeting.start_time) props.closedate = new Date(meeting.start_time).toISOString();\n  const reason = closedLostReason(lead);\n  if (reason) {\n    props.closed_lost_reason = reason;\n    if (isClosing(lead.status)) props.closedate = new Date().toISOString();\n  }\n  if (ownerId) props.hubspot_owner_id = String(ownerId);\n  return { properties: props };\n}\n\nfunction firstResultId(searchResponse) {\n  const r = searchResponse && Array.isArray(searchResponse.results) ? searchResponse.results[0] : null;\n  return r ? String(r.id) : null;\n}\n\n/** Decide create vs update (PATCH) for an object. */\nfunction upsertPlan(existingId, objectType, props) {\n  return existingId\n    ? { method: 'PATCH', path: `/crm/v3/objects/${objectType}/${existingId}`, body: props }\n    : { method: 'POST', path: `/crm/v3/objects/${objectType}`, body: props };\n}\n\n/** Note on the deal: source campaign, status change and the email thread summary. */\nfunction noteProps(summary, timestamp, dealId) {\n  const note = { properties: { hs_note_body: String(summary || '').slice(0, 5000), hs_timestamp: new Date(timestamp || Date.now()).toISOString() } };\n  if (dealId) note.associations = [{ to: { id: String(dealId) }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 214 }] }];\n  return note;\n}\n\nconst crmApi = { DEAL_STAGES, CLOSING_STATUSES, isClosing, closedLostReason, splitName, contactSearch, companySearch, dealSearch, contactProps, companyProps, dealProps, dealName, firstResultId, upsertPlan, noteProps };\nif (typeof module !== 'undefined' && module.exports) module.exports = crmApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst p = $('Plan').item.json;\nreturn { json: M.crm.upsertPlan(M.crm.firstResultId($json), 'companies', M.crm.companyProps(p.lead)) };\n",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "b1665da3-0ad2-457a-8964-4cbd5d442a14",
+      "name": "Upsert company",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        0
+      ],
+      "parameters": {
+        "method": "={{ $json.method }}",
+        "url": "={{ $('Config').first().json.cfg.hubspotUrl }}{{ $json.path }}",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 150
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUBSPOT_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "01bf4a73-7264-4794-8ef1-6774a24b651f",
+      "name": "Contact ↔ company",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        0
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Config').first().json.cfg.hubspotUrl }}/crm/v4/objects/contact/{{ $('Upsert contact').item.json.id }}/associations/default/company/{{ $('Upsert company').item.json.id }}",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 150
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUBSPOT_TOKEN }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "efea8b18-a734-4339-8dae-896565901e06",
+      "name": "Search deal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.hubspotUrl }}/crm/v3/objects/deals/search",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 150
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUBSPOT_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'dealname', operator: 'EQ', value: $('Plan').item.json.dealname }] }], limit: 1 }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "96b811d9-1be8-4c68-8ef6-8725527dc4d2",
+      "name": "Deal upsert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.crm = (function () {\n  const module = { exports: {} };\n/**\n * crm.js – Module 10 HubSpot payloads (CRM v3). Idempotent: search first, then create or update.\n */\nconst DEAL_STAGES = {\n  Interested: 'appointmentscheduled',\n  'Meeting booked': 'appointmentscheduled',\n  'Meeting held': 'qualifiedtobuy',\n  'No-show': 'closedlost',\n  // The lead withdrew after showing interest: the open deal is closed, never left hanging.\n  'Not interested': 'closedlost',\n  Unsubscribed: 'closedlost',\n};\n\n/** Statuses that close an existing deal. They never create a new one (only leads that already have a deal are synced). */\nconst CLOSING_STATUSES = ['Not interested', 'Unsubscribed'];\n\nfunction isClosing(status) {\n  return CLOSING_STATUSES.includes(status);\n}\n\n/** Readable reason for HubSpot's standard closed_lost_reason property. */\nfunction closedLostReason(lead) {\n  if (lead.status === 'Unsubscribed') return 'Lead hat sich nach Interesse abgemeldet (STOP)';\n  if (lead.status === 'Not interested') return 'Lead hat nach Interesse abgesagt';\n  if (lead.status === 'No-show') return 'Lead ist nicht zum Termin erschienen';\n  return '';\n}\n\nfunction splitName(full) {\n  const parts = String(full || '').trim().split(/\\s+/).filter(Boolean);\n  if (!parts.length) return { firstname: '', lastname: '' };\n  if (parts.length === 1) return { firstname: '', lastname: parts[0] };\n  return { firstname: parts.slice(0, -1).join(' '), lastname: parts[parts.length - 1] };\n}\n\nfunction contactSearch(email) {\n  return { filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: String(email).toLowerCase() }] }], properties: ['email', 'firstname', 'lastname'], limit: 1 };\n}\n\nfunction companySearch(domain) {\n  return { filterGroups: [{ filters: [{ propertyName: 'domain', operator: 'EQ', value: String(domain).toLowerCase() }] }], properties: ['domain', 'name'], limit: 1 };\n}\n\nfunction dealSearch(dealName) {\n  return { filterGroups: [{ filters: [{ propertyName: 'dealname', operator: 'EQ', value: dealName }] }], properties: ['dealname', 'dealstage'], limit: 1 };\n}\n\n/** Standard properties only (a fresh HubSpot portal rejects unknown custom properties).\n *  lifecyclestage is set on create only: HubSpot refuses to move it backwards on update. */\nfunction contactProps(lead, opts) {\n  opts = opts || {};\n  const n = splitName(lead.contact_name);\n  const properties = {\n    email: String(lead.email || '').toLowerCase(),\n    firstname: n.firstname,\n    lastname: n.lastname,\n    company: lead.company_name || '',\n    phone: lead.phone || '',\n    website: lead.website || '',\n    hs_lead_status: isClosing(lead.status) ? 'UNQUALIFIED' : 'IN_PROGRESS',\n  };\n  if (opts.create) properties.lifecyclestage = 'lead';\n  return { properties };\n}\n\nfunction companyProps(lead) {\n  return { properties: { name: lead.company_name || lead.domain, domain: lead.domain || '', phone: lead.phone || '', city: lead.city || '' } };\n}\n\nfunction dealName(lead) {\n  return `${lead.company_name || lead.domain} – Erstgespräch (lead ${lead.lead_id || lead.id})`;\n}\n\nfunction dealProps(lead, meeting, ownerId) {\n  const props = {\n    dealname: dealName(lead),\n    pipeline: 'default',\n    dealstage: DEAL_STAGES[lead.status] || DEAL_STAGES['Meeting booked'],\n  };\n  if (meeting && meeting.start_time) props.closedate = new Date(meeting.start_time).toISOString();\n  const reason = closedLostReason(lead);\n  if (reason) {\n    props.closed_lost_reason = reason;\n    if (isClosing(lead.status)) props.closedate = new Date().toISOString();\n  }\n  if (ownerId) props.hubspot_owner_id = String(ownerId);\n  return { properties: props };\n}\n\nfunction firstResultId(searchResponse) {\n  const r = searchResponse && Array.isArray(searchResponse.results) ? searchResponse.results[0] : null;\n  return r ? String(r.id) : null;\n}\n\n/** Decide create vs update (PATCH) for an object. */\nfunction upsertPlan(existingId, objectType, props) {\n  return existingId\n    ? { method: 'PATCH', path: `/crm/v3/objects/${objectType}/${existingId}`, body: props }\n    : { method: 'POST', path: `/crm/v3/objects/${objectType}`, body: props };\n}\n\n/** Note on the deal: source campaign, status change and the email thread summary. */\nfunction noteProps(summary, timestamp, dealId) {\n  const note = { properties: { hs_note_body: String(summary || '').slice(0, 5000), hs_timestamp: new Date(timestamp || Date.now()).toISOString() } };\n  if (dealId) note.associations = [{ to: { id: String(dealId) }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 214 }] }];\n  return note;\n}\n\nconst crmApi = { DEAL_STAGES, CLOSING_STATUSES, isClosing, closedLostReason, splitName, contactSearch, companySearch, dealSearch, contactProps, companyProps, dealProps, dealName, firstResultId, upsertPlan, noteProps };\nif (typeof module !== 'undefined' && module.exports) module.exports = crmApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst p = $('Plan').item.json;\nreturn { json: M.crm.upsertPlan(M.crm.firstResultId($json), 'deals', M.crm.dealProps(p.lead, p.meeting, p.owner)) };\n",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "eb2e4e99-2492-450e-81e8-d22cc81656f8",
+      "name": "Upsert deal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        0
+      ],
+      "parameters": {
+        "method": "={{ $json.method }}",
+        "url": "={{ $('Config').first().json.cfg.hubspotUrl }}{{ $json.path }}",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 150
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUBSPOT_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "037006a5-f21e-4ef3-80ac-3dcbfb854949",
+      "name": "Deal ↔ contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4080,
+        0
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Config').first().json.cfg.hubspotUrl }}/crm/v4/objects/deal/{{ $('Upsert deal').item.json.id }}/associations/default/contact/{{ $('Upsert contact').item.json.id }}",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 150
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUBSPOT_TOKEN }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "f21be8bd-4820-44c4-89ba-1a597829392f",
+      "name": "Deal ↔ company",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4320,
+        0
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Config').first().json.cfg.hubspotUrl }}/crm/v4/objects/deal/{{ $('Upsert deal').item.json.id }}/associations/default/company/{{ $('Upsert company').item.json.id }}",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 150
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUBSPOT_TOKEN }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "ddaf3d53-8dad-4f6c-814b-f3f6c19a28f3",
+      "name": "Note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.crm = (function () {\n  const module = { exports: {} };\n/**\n * crm.js – Module 10 HubSpot payloads (CRM v3). Idempotent: search first, then create or update.\n */\nconst DEAL_STAGES = {\n  Interested: 'appointmentscheduled',\n  'Meeting booked': 'appointmentscheduled',\n  'Meeting held': 'qualifiedtobuy',\n  'No-show': 'closedlost',\n  // The lead withdrew after showing interest: the open deal is closed, never left hanging.\n  'Not interested': 'closedlost',\n  Unsubscribed: 'closedlost',\n};\n\n/** Statuses that close an existing deal. They never create a new one (only leads that already have a deal are synced). */\nconst CLOSING_STATUSES = ['Not interested', 'Unsubscribed'];\n\nfunction isClosing(status) {\n  return CLOSING_STATUSES.includes(status);\n}\n\n/** Readable reason for HubSpot's standard closed_lost_reason property. */\nfunction closedLostReason(lead) {\n  if (lead.status === 'Unsubscribed') return 'Lead hat sich nach Interesse abgemeldet (STOP)';\n  if (lead.status === 'Not interested') return 'Lead hat nach Interesse abgesagt';\n  if (lead.status === 'No-show') return 'Lead ist nicht zum Termin erschienen';\n  return '';\n}\n\nfunction splitName(full) {\n  const parts = String(full || '').trim().split(/\\s+/).filter(Boolean);\n  if (!parts.length) return { firstname: '', lastname: '' };\n  if (parts.length === 1) return { firstname: '', lastname: parts[0] };\n  return { firstname: parts.slice(0, -1).join(' '), lastname: parts[parts.length - 1] };\n}\n\nfunction contactSearch(email) {\n  return { filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: String(email).toLowerCase() }] }], properties: ['email', 'firstname', 'lastname'], limit: 1 };\n}\n\nfunction companySearch(domain) {\n  return { filterGroups: [{ filters: [{ propertyName: 'domain', operator: 'EQ', value: String(domain).toLowerCase() }] }], properties: ['domain', 'name'], limit: 1 };\n}\n\nfunction dealSearch(dealName) {\n  return { filterGroups: [{ filters: [{ propertyName: 'dealname', operator: 'EQ', value: dealName }] }], properties: ['dealname', 'dealstage'], limit: 1 };\n}\n\n/** Standard properties only (a fresh HubSpot portal rejects unknown custom properties).\n *  lifecyclestage is set on create only: HubSpot refuses to move it backwards on update. */\nfunction contactProps(lead, opts) {\n  opts = opts || {};\n  const n = splitName(lead.contact_name);\n  const properties = {\n    email: String(lead.email || '').toLowerCase(),\n    firstname: n.firstname,\n    lastname: n.lastname,\n    company: lead.company_name || '',\n    phone: lead.phone || '',\n    website: lead.website || '',\n    hs_lead_status: isClosing(lead.status) ? 'UNQUALIFIED' : 'IN_PROGRESS',\n  };\n  if (opts.create) properties.lifecyclestage = 'lead';\n  return { properties };\n}\n\nfunction companyProps(lead) {\n  return { properties: { name: lead.company_name || lead.domain, domain: lead.domain || '', phone: lead.phone || '', city: lead.city || '' } };\n}\n\nfunction dealName(lead) {\n  return `${lead.company_name || lead.domain} – Erstgespräch (lead ${lead.lead_id || lead.id})`;\n}\n\nfunction dealProps(lead, meeting, ownerId) {\n  const props = {\n    dealname: dealName(lead),\n    pipeline: 'default',\n    dealstage: DEAL_STAGES[lead.status] || DEAL_STAGES['Meeting booked'],\n  };\n  if (meeting && meeting.start_time) props.closedate = new Date(meeting.start_time).toISOString();\n  const reason = closedLostReason(lead);\n  if (reason) {\n    props.closed_lost_reason = reason;\n    if (isClosing(lead.status)) props.closedate = new Date().toISOString();\n  }\n  if (ownerId) props.hubspot_owner_id = String(ownerId);\n  return { properties: props };\n}\n\nfunction firstResultId(searchResponse) {\n  const r = searchResponse && Array.isArray(searchResponse.results) ? searchResponse.results[0] : null;\n  return r ? String(r.id) : null;\n}\n\n/** Decide create vs update (PATCH) for an object. */\nfunction upsertPlan(existingId, objectType, props) {\n  return existingId\n    ? { method: 'PATCH', path: `/crm/v3/objects/${objectType}/${existingId}`, body: props }\n    : { method: 'POST', path: `/crm/v3/objects/${objectType}`, body: props };\n}\n\n/** Note on the deal: source campaign, status change and the email thread summary. */\nfunction noteProps(summary, timestamp, dealId) {\n  const note = { properties: { hs_note_body: String(summary || '').slice(0, 5000), hs_timestamp: new Date(timestamp || Date.now()).toISOString() } };\n  if (dealId) note.associations = [{ to: { id: String(dealId) }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 214 }] }];\n  return note;\n}\n\nconst crmApi = { DEAL_STAGES, CLOSING_STATUSES, isClosing, closedLostReason, splitName, contactSearch, companySearch, dealSearch, contactProps, companyProps, dealProps, dealName, firstResultId, upsertPlan, noteProps };\nif (typeof module !== 'undefined' && module.exports) module.exports = crmApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst p = $('Plan').item.json;\nconst text = 'Status: ' + p.lead.status + (p.meeting ? ' · Termin: ' + p.meeting.start_time : '') + '\\nQuelle: ' + p.campaign + ' (' + (p.lead.source || '') + ')\\n' + (p.lead.meeting_brief || p.lead.company_summary || '');\nreturn { json: M.crm.noteProps(text, new Date().toISOString(), $('Upsert deal').item.json.id) };\n",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "0d63c58a-1e39-4ce4-89e4-7c5ece3507d4",
+      "name": "Add note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4800,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.hubspotUrl }}/crm/v3/objects/notes",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 150
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUBSPOT_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "b870d927-c612-4f03-8af5-5d57a3075d6b",
+      "name": "Airtable update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5040,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst plans = $('Plan').all();\nconst c = $('Upsert contact').all(), co = $('Upsert company').all(), d = $('Upsert deal').all();\nreturn M.airtable.updateBatches(plans.map((p, i) => ({ id: p.json.lead.id, fields: {\n  hubspot_contact_id: String(c[i].json.id), hubspot_company_id: String(co[i].json.id), hubspot_deal_id: String(d[i].json.id), crm_synced_status: p.json.lead.status,\n} }))).map((b) => ({ json: b }));\n"
+      }
+    },
+    {
+      "id": "675a9c79-927a-46ba-85e6-57825c3a89fa",
+      "name": "Save HubSpot ids",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5280,
+        0
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records, typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Leads (batches of 10)"
+    }
+  ],
+  "connections": {
+    "Sync now": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Leads to sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leads to sync": {
+      "main": [
+        [
+          {
+            "node": "Meetings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meetings": {
+      "main": [
+        [
+          {
+            "node": "Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaigns": {
+      "main": [
+        [
+          {
+            "node": "Clients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clients": {
+      "main": [
+        [
+          {
+            "node": "Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan": {
+      "main": [
+        [
+          {
+            "node": "Search contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search contact": {
+      "main": [
+        [
+          {
+            "node": "Contact upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contact upsert": {
+      "main": [
+        [
+          {
+            "node": "Upsert contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert contact": {
+      "main": [
+        [
+          {
+            "node": "Search company",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search company": {
+      "main": [
+        [
+          {
+            "node": "Company upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Company upsert": {
+      "main": [
+        [
+          {
+            "node": "Upsert company",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert company": {
+      "main": [
+        [
+          {
+            "node": "Contact ↔ company",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contact ↔ company": {
+      "main": [
+        [
+          {
+            "node": "Search deal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search deal": {
+      "main": [
+        [
+          {
+            "node": "Deal upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deal upsert": {
+      "main": [
+        [
+          {
+            "node": "Upsert deal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert deal": {
+      "main": [
+        [
+          {
+            "node": "Deal ↔ contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deal ↔ contact": {
+      "main": [
+        [
+          {
+            "node": "Deal ↔ company",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deal ↔ company": {
+      "main": [
+        [
+          {
+            "node": "Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Note": {
+      "main": [
+        [
+          {
+            "node": "Add note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add note": {
+      "main": [
+        [
+          {
+            "node": "Airtable update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Airtable update": {
+      "main": [
+        [
+          {
+            "node": "Save HubSpot ids",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "NxsWf00ErrorHndl"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "nexsaleFile": "10_crm_sync",
+    "description": "Leads in Interested / Meeting booked / Meeting held / No-show → one contact, company and deal each. A later Not interested / STOP closes the existing deal (Closed lost). Search first, so re-runs never duplicate."
+  },
+  "pinData": {},
+  "tags": []
+}

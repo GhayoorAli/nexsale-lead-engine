@@ -1,0 +1,354 @@
+{
+  "id": "NxsWf07dCalPoll0",
+  "name": "Nexsale 07d – Calendly poll (free plan)",
+  "active": false,
+  "versionId": "b6149dfc-655c-4416-8d33-b220dd1388fb",
+  "nodes": [
+    {
+      "id": "c47d0109-ea1a-4b5a-87bc-4937ba38266d",
+      "name": "Every 3 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "3f838157-391e-47ab-8bb1-c13af5136722",
+      "name": "Poll now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "calendly-poll",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "d80d947f-52c4-43ab-830f-41a3feed2caa"
+    },
+    {
+      "id": "8d4b015b-3f41-4bfc-8f76-f87973ef906f",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.config = (function () {\n  const module = { exports: {} };\n/**\n * config.js – builds the runtime config for every workflow from environment variables.\n * Used by the first \"Config\" Code node in each workflow. Secrets are NOT copied into\n * the output (execution data is stored in n8n); HTTP nodes read tokens from $env directly.\n */\nfunction bool(v, dflt) {\n  if (v === undefined || v === null || v === '') return dflt;\n  return String(v).trim().toLowerCase() === 'true';\n}\n\nfunction parseList(v) {\n  return String(v || '')\n    .split(/[,;\\s]+/)\n    .map((s) => s.trim().toLowerCase())\n    .filter(Boolean);\n}\n\nfunction parseLimit(v, demoMode) {\n  if (v === undefined || v === null || v === '') return demoMode ? 10 : null;\n  if (String(v).trim().toLowerCase() === 'off') return null;\n  const n = parseInt(v, 10);\n  return Number.isFinite(n) && n > 0 ? n : 10;\n}\n\nfunction trimSlash(u) {\n  return String(u || '').replace(/\\/+$/, '');\n}\n\nfunction buildConfig(env) {\n  env = env || {};\n  // Safe defaults: demo mode ON unless explicitly \"false\".\n  const demoMode = bool(env.DEMO_MODE, true);\n  const mock = bool(env.MOCK_EXTERNAL, false);\n  const mockBase = trimSlash(env.MOCK_BASE_URL || 'http://host.docker.internal:8787');\n  const real = {\n    airtable: 'https://api.airtable.com/v0',\n    googlePlaces: 'https://places.googleapis.com/v1',\n    openai: 'https://api.openai.com/v1',\n    anthropic: 'https://api.anthropic.com/v1',\n    slack: 'https://slack.com/api',\n    gmail: 'https://gmail.googleapis.com/gmail/v1',\n    hubspot: 'https://api.hubapi.com',\n    dns: 'https://dns.google',\n    web: '',\n    calendly: 'https://api.calendly.com',\n  };\n  const mocked = {\n    airtable: mockBase + '/airtable/v0',\n    googlePlaces: mockBase + '/google/v1',\n    openai: mockBase + '/ai/openai/v1',\n    anthropic: mockBase + '/ai/anthropic/v1',\n    slack: mockBase + '/slack/api',\n    gmail: mockBase + '/gmail/v1',\n    hubspot: mockBase + '/hubspot',\n    dns: mockBase + '/dns',\n    web: mockBase + '/web',\n    calendly: mockBase + '/calendly',\n  };\n  const urls = mock ? mocked : real;\n  const aiProvider = String(env.AI_PROVIDER || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : 'openai';\n  const allowlist = parseList(env.TEST_RECIPIENT_ALLOWLIST);\n  const conf = parseFloat(env.AUTO_REPLY_MIN_CONFIDENCE);\n  return {\n    demoMode,\n    mock,\n    allowRealSending: !demoMode && bool(env.ALLOW_REAL_SENDING, false),\n    // DEMO_MODE sends from an every-minute ticker; the test stack turns it off and drives sends by webhook\n    demoTicker: !bool(env.DISABLE_DEMO_TICKER, false),\n    // cap per run so one run always finishes before the next tick (no overlapping runs)\n    maxSendsPerRun: demoMode ? 6 : 5,\n    testLeadLimit: parseLimit(env.TEST_LEAD_LIMIT, demoMode),\n    allowlist,\n    testProspectEmail: String(env.TEST_PROSPECT_EMAIL || '').trim().toLowerCase(),\n    senderEmail: String(env.SENDER_EMAIL || '').trim().toLowerCase(),\n    autoReplyMinConfidence: Number.isFinite(conf) ? conf : 0.85,\n    unsureConfidence: 0.7,\n    timezone: 'Europe/Berlin',\n    airtableBaseId: env.AIRTABLE_BASE_ID || '',\n    airtableUrl: urls.airtable + '/' + (env.AIRTABLE_BASE_ID || ''),\n    googlePlacesUrl: urls.googlePlaces,\n    aiProvider,\n    aiModel: env.AI_MODEL || (aiProvider === 'anthropic' ? 'claude-haiku-5-5' : 'gpt-4o-mini'),\n    aiUrl: aiProvider === 'anthropic' ? urls.anthropic + '/messages' : urls.openai + '/chat/completions',\n    slackApiUrl: urls.slack,\n    slackChannel: env.SLACK_CHANNEL || '#leads',\n    gmailUrl: urls.gmail,\n    hubspotUrl: urls.hubspot,\n    dnsUrl: urls.dns,\n    webProxyUrl: urls.web,\n    calendlyLink: env.CALENDLY_LINK || '',\n    calendlyApiUrl: urls.calendly,\n    n8nBaseUrl: trimSlash(env.WEBHOOK_URL || 'http://localhost:5678'),\n    n8nInternalUrl: trimSlash(env.N8N_INTERNAL_URL || 'http://localhost:5678'),\n    interfaceUrl: env.AIRTABLE_INTERFACE_URL || (env.AIRTABLE_BASE_ID ? 'https://airtable.com/' + env.AIRTABLE_BASE_ID : ''),\n    googleCostPerRequestEur: 0.032,\n  };\n}\n\n/** URL to fetch a company web page; in mock mode served by the mock server. */\nfunction webUrl(cfg, domain, path) {\n  path = path || '/';\n  if (cfg.webProxyUrl) return cfg.webProxyUrl + '/' + domain + path;\n  return 'https://' + domain + path;\n}\n\nconst configApi = { buildConfig, webUrl, parseList, parseLimit };\nif (typeof module !== 'undefined' && module.exports) module.exports = configApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst trigger = $input.all().map((i) => i.json);\n// test stack only: schedules are switched off so tests drive every module through its webhook\nconst scheduled = trigger.length > 0 && trigger[0] && trigger[0]['Readable date'] !== undefined;\nif (scheduled && String($env.DISABLE_SCHEDULES).toLowerCase() === 'true') return [];\nreturn [{ json: { cfg: M.config.buildConfig($env), trigger, startedAt: new Date().toISOString() } }];\n"
+      },
+      "notes": "Builds runtime config from env (no secrets in output)."
+    },
+    {
+      "id": "f70e802e-e4f9-4943-840e-c4213421b376",
+      "name": "Calendly user",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.calendlyApiUrl }}/users/me",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.CALENDLY_TOKEN }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true
+    },
+    {
+      "id": "cbd19de1-c5c0-4438-8c8b-c888a808e5ba",
+      "name": "Upcoming events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.calendlyApiUrl }}/scheduled_events",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.CALENDLY_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "user",
+              "value": "={{ $json.resource.uri }}"
+            },
+            {
+              "name": "min_start_time",
+              "value": "={{ new Date(Date.now() - 2 * 3600000).toISOString() }}"
+            },
+            {
+              "name": "count",
+              "value": "100"
+            },
+            {
+              "name": "sort",
+              "value": "start_time:asc"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Active and cancelled events from 2 h ago onwards"
+    },
+    {
+      "id": "45498f9f-7c5b-41ff-836c-ffdb544daebf",
+      "name": "Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const list = ($json.collection || []);\nif ($json.error || $json.message && !$json.collection) throw new Error('Calendly API error: ' + ($json.message || JSON.stringify($json.error)));\nreturn list.map((e) => ({ json: { event: e, uuid: String(e.uri).split('/').pop() } }));\n"
+      }
+    },
+    {
+      "id": "a5c1e22c-06ff-4f09-83c3-de7283d08f0f",
+      "name": "Invitees",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.calendlyApiUrl }}/scheduled_events/{{ $json.uuid }}/invitees",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 3,
+              "batchInterval": 400
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.CALENDLY_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "count",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "a5ba6148-fdc8-451f-89ea-ea0ccb91ffac",
+      "name": "Changed bookings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.calendly = (function () {\n  const module = { exports: {} };\n/**\n * calendly.js – Module 7b: parse Calendly webhook payloads (invitee.created / invitee.canceled).\n * Idempotent: the same event URI twice produces one meeting.\n */\nfunction parseCalendly(body) {\n  const b = (body && (body.body || body)) || {};\n  const p = b.payload || {};\n  const event = b.event || '';\n  const scheduled = p.scheduled_event || {};\n  return {\n    event,\n    email: String(p.email || '').toLowerCase(),\n    name: p.name || '',\n    invitee_uri: p.uri || '',\n    event_uri: scheduled.uri || p.event || '',\n    calendly_event_id: String(scheduled.uri || p.event || p.uri || '').split('/').filter(Boolean).pop() || '',\n    start_time: scheduled.start_time || p.start_time || null,\n    end_time: scheduled.end_time || null,\n    cancel_reason: (p.cancellation && p.cancellation.reason) || '',\n    utm_content: (p.tracking && p.tracking.utm_content) || '',\n    // answers to the booking form's questions (e.g. object size, contract end) go into the meeting brief\n    questions: (Array.isArray(p.questions_and_answers) ? p.questions_and_answers : [])\n      .filter((q) => q && q.question && q.answer).map((q) => ({ question: String(q.question), answer: String(q.answer) })),\n    valid: (event === 'invitee.created' || event === 'invitee.canceled') && !!p.email,\n  };\n}\n\n/** decide what to do given existing Meetings with the same calendly_event_id */\nfunction meetingAction(parsed, existingMeetings) {\n  const existing = (existingMeetings || []).find((m) => m.calendly_event_id === parsed.calendly_event_id);\n  if (parsed.event === 'invitee.created') return existing ? { action: 'skip', reason: 'duplicate webhook', meeting: existing } : { action: 'create' };\n  if (parsed.event === 'invitee.canceled') return existing ? (existing.status === 'Cancelled' ? { action: 'skip', reason: 'already cancelled', meeting: existing } : { action: 'cancel', meeting: existing }) : { action: 'skip', reason: 'unknown meeting' };\n  return { action: 'skip', reason: 'unsupported event ' + parsed.event };\n}\n\n/** Booking link that tells the webhook which lead booked (Calendly passes utm_content back). */\nfunction bookingLink(link, leadRecordId) {\n  if (!link) return '';\n  return link + (link.includes('?') ? '&' : '?') + 'utm_source=nexsale&utm_content=' + encodeURIComponent(leadRecordId || '');\n}\n\n/** Calendly-Webhook-Signature: \"t=<ts>,v1=<hmac_sha256(key, t + '.' + body)>\" */\nfunction verifyCalendlySignature(opts) {\n  const { signingKey, header, rawBody, crypto } = opts || {};\n  const now = opts && opts.now !== undefined ? opts.now : Math.floor(Date.now() / 1000);\n  if (!signingKey) return { ok: true, skipped: true };\n  const parts = Object.fromEntries(String(header || '').split(',').map((kv) => kv.trim().split('=')));\n  if (!parts.t || !parts.v1) return { ok: false, reason: 'missing signature' };\n  if (Math.abs(now - Number(parts.t)) > 180) return { ok: false, reason: 'signature too old' };\n  const expected = crypto.createHmac('sha256', signingKey).update(parts.t + '.' + (rawBody || '')).digest('hex');\n  const a = Buffer.from(expected);\n  const b = Buffer.from(String(parts.v1));\n  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return { ok: false, reason: 'signature mismatch' };\n  return { ok: true };\n}\n\n/**\n * Free Calendly plan (no webhooks): turn polled API data into the same payloads a webhook would send,\n * so 07b_calendly handles both the same way. Only invitees created/changed within `windowMinutes` are\n * forwarded; 07b's duplicate check makes overlapping polls harmless.\n * events: GET /scheduled_events collection; inviteesByEvent: { <event uri>: GET /invitees collection }\n */\nfunction pollToPayloads(events, inviteesByEvent, now, windowMinutes) {\n  const t = new Date(now || Date.now()).getTime();\n  const since = t - (windowMinutes || 30) * 60000;\n  const out = [];\n  (events || []).forEach((ev) => {\n    ((inviteesByEvent || {})[ev.uri] || []).forEach((inv) => {\n      const canceled = inv.status === 'canceled' || ev.status === 'canceled';\n      const changedAt = new Date(canceled ? inv.updated_at || inv.created_at : inv.created_at).getTime();\n      if (!(changedAt >= since)) return;\n      out.push({\n        event: canceled ? 'invitee.canceled' : 'invitee.created',\n        source: 'calendly-poll',\n        payload: {\n          email: inv.email, name: inv.name, uri: inv.uri, status: inv.status, tracking: inv.tracking || {}, questions_and_answers: inv.questions_and_answers || [],\n          cancellation: inv.cancellation || undefined,\n          scheduled_event: { uri: ev.uri, name: ev.name, start_time: ev.start_time, end_time: ev.end_time },\n        },\n      });\n    });\n  });\n  return out;\n}\n\nconst calendlyApi = { parseCalendly, meetingAction, bookingLink, verifyCalendlySignature, pollToPayloads };\nif (typeof module !== 'undefined' && module.exports) module.exports = calendlyApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst evs = $('Events').all().map((i) => i.json.event);\nconst inv = {};\n$input.all().forEach((it, i) => { inv[evs[i].uri] = it.json.collection || []; });\nreturn M.calendly.pollToPayloads(evs, inv, new Date(), 30).map((p) => ({ json: p }));\n"
+      },
+      "notes": "Only invitees created/cancelled in the last 30 min; 07b ignores duplicates"
+    },
+    {
+      "id": "88746f4b-3c9b-412f-80ca-efe054eae609",
+      "name": "Hand to 07b_calendly",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.n8nInternalUrl }}/webhook/calendly",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 500
+            }
+          }
+        },
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Every 3 minutes": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll now": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Calendly user",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendly user": {
+      "main": [
+        [
+          {
+            "node": "Upcoming events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upcoming events": {
+      "main": [
+        [
+          {
+            "node": "Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Events": {
+      "main": [
+        [
+          {
+            "node": "Invitees",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invitees": {
+      "main": [
+        [
+          {
+            "node": "Changed bookings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Changed bookings": {
+      "main": [
+        [
+          {
+            "node": "Hand to 07b_calendly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "NxsWf00ErrorHndl"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "nexsaleFile": "07d_calendly_poll",
+    "description": "Calendly free plan has no webhooks: every 3 minutes read new/cancelled bookings and hand them to 07b_calendly."
+  },
+  "pinData": {},
+  "tags": []
+}

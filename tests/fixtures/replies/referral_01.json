@@ -1,0 +1,8 @@
+{
+  "fixture": "referral_01",
+  "expected_category": "Referral",
+  "expected_branch": "Referral",
+  "subject": "Re: Unterhaltsreinigung bei Glanzwerk",
+  "body": "Danke für die Nachricht. Dafür ist bei uns Frau Petra Klein zuständig, wenden Sie sich bitte an p.klein@glanzwerk-berlin.example.\n\nGruß\nThomas Becker",
+  "auto_submitted": ""
+}

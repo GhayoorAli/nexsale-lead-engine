@@ -1,0 +1,591 @@
+{
+  "id": "NxsWf08bDashbrd0",
+  "name": "Nexsale 08b – Live dashboard",
+  "active": false,
+  "versionId": "5734acbc-7932-4b81-8fd8-fd1cb6be241e",
+  "nodes": [
+    {
+      "id": "c6333c82-0942-409e-8ec7-8e88750765a1",
+      "name": "Dashboard request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "dashboard",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "2e433bfb-0d1a-4ea7-8f6f-5afb40788cda"
+    },
+    {
+      "id": "48bdcd3e-6904-46fb-8b27-633b1570e6f7",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.config = (function () {\n  const module = { exports: {} };\n/**\n * config.js – builds the runtime config for every workflow from environment variables.\n * Used by the first \"Config\" Code node in each workflow. Secrets are NOT copied into\n * the output (execution data is stored in n8n); HTTP nodes read tokens from $env directly.\n */\nfunction bool(v, dflt) {\n  if (v === undefined || v === null || v === '') return dflt;\n  return String(v).trim().toLowerCase() === 'true';\n}\n\nfunction parseList(v) {\n  return String(v || '')\n    .split(/[,;\\s]+/)\n    .map((s) => s.trim().toLowerCase())\n    .filter(Boolean);\n}\n\nfunction parseLimit(v, demoMode) {\n  if (v === undefined || v === null || v === '') return demoMode ? 10 : null;\n  if (String(v).trim().toLowerCase() === 'off') return null;\n  const n = parseInt(v, 10);\n  return Number.isFinite(n) && n > 0 ? n : 10;\n}\n\nfunction trimSlash(u) {\n  return String(u || '').replace(/\\/+$/, '');\n}\n\nfunction buildConfig(env) {\n  env = env || {};\n  // Safe defaults: demo mode ON unless explicitly \"false\".\n  const demoMode = bool(env.DEMO_MODE, true);\n  const mock = bool(env.MOCK_EXTERNAL, false);\n  const mockBase = trimSlash(env.MOCK_BASE_URL || 'http://host.docker.internal:8787');\n  const real = {\n    airtable: 'https://api.airtable.com/v0',\n    googlePlaces: 'https://places.googleapis.com/v1',\n    openai: 'https://api.openai.com/v1',\n    anthropic: 'https://api.anthropic.com/v1',\n    slack: 'https://slack.com/api',\n    gmail: 'https://gmail.googleapis.com/gmail/v1',\n    hubspot: 'https://api.hubapi.com',\n    dns: 'https://dns.google',\n    web: '',\n    calendly: 'https://api.calendly.com',\n  };\n  const mocked = {\n    airtable: mockBase + '/airtable/v0',\n    googlePlaces: mockBase + '/google/v1',\n    openai: mockBase + '/ai/openai/v1',\n    anthropic: mockBase + '/ai/anthropic/v1',\n    slack: mockBase + '/slack/api',\n    gmail: mockBase + '/gmail/v1',\n    hubspot: mockBase + '/hubspot',\n    dns: mockBase + '/dns',\n    web: mockBase + '/web',\n    calendly: mockBase + '/calendly',\n  };\n  const urls = mock ? mocked : real;\n  const aiProvider = String(env.AI_PROVIDER || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : 'openai';\n  const allowlist = parseList(env.TEST_RECIPIENT_ALLOWLIST);\n  const conf = parseFloat(env.AUTO_REPLY_MIN_CONFIDENCE);\n  return {\n    demoMode,\n    mock,\n    allowRealSending: !demoMode && bool(env.ALLOW_REAL_SENDING, false),\n    // DEMO_MODE sends from an every-minute ticker; the test stack turns it off and drives sends by webhook\n    demoTicker: !bool(env.DISABLE_DEMO_TICKER, false),\n    // cap per run so one run always finishes before the next tick (no overlapping runs)\n    maxSendsPerRun: demoMode ? 6 : 5,\n    testLeadLimit: parseLimit(env.TEST_LEAD_LIMIT, demoMode),\n    allowlist,\n    testProspectEmail: String(env.TEST_PROSPECT_EMAIL || '').trim().toLowerCase(),\n    senderEmail: String(env.SENDER_EMAIL || '').trim().toLowerCase(),\n    autoReplyMinConfidence: Number.isFinite(conf) ? conf : 0.85,\n    unsureConfidence: 0.7,\n    timezone: 'Europe/Berlin',\n    airtableBaseId: env.AIRTABLE_BASE_ID || '',\n    airtableUrl: urls.airtable + '/' + (env.AIRTABLE_BASE_ID || ''),\n    googlePlacesUrl: urls.googlePlaces,\n    aiProvider,\n    aiModel: env.AI_MODEL || (aiProvider === 'anthropic' ? 'claude-haiku-5-5' : 'gpt-4o-mini'),\n    aiUrl: aiProvider === 'anthropic' ? urls.anthropic + '/messages' : urls.openai + '/chat/completions',\n    slackApiUrl: urls.slack,\n    slackChannel: env.SLACK_CHANNEL || '#leads',\n    gmailUrl: urls.gmail,\n    hubspotUrl: urls.hubspot,\n    dnsUrl: urls.dns,\n    webProxyUrl: urls.web,\n    calendlyLink: env.CALENDLY_LINK || '',\n    calendlyApiUrl: urls.calendly,\n    n8nBaseUrl: trimSlash(env.WEBHOOK_URL || 'http://localhost:5678'),\n    n8nInternalUrl: trimSlash(env.N8N_INTERNAL_URL || 'http://localhost:5678'),\n    interfaceUrl: env.AIRTABLE_INTERFACE_URL || (env.AIRTABLE_BASE_ID ? 'https://airtable.com/' + env.AIRTABLE_BASE_ID : ''),\n    googleCostPerRequestEur: 0.032,\n  };\n}\n\n/** URL to fetch a company web page; in mock mode served by the mock server. */\nfunction webUrl(cfg, domain, path) {\n  path = path || '/';\n  if (cfg.webProxyUrl) return cfg.webProxyUrl + '/' + domain + path;\n  return 'https://' + domain + path;\n}\n\nconst configApi = { buildConfig, webUrl, parseList, parseLimit };\nif (typeof module !== 'undefined' && module.exports) module.exports = configApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst trigger = $input.all().map((i) => i.json);\n// test stack only: schedules are switched off so tests drive every module through its webhook\nconst scheduled = trigger.length > 0 && trigger[0] && trigger[0]['Readable date'] !== undefined;\nif (scheduled && String($env.DISABLE_SCHEDULES).toLowerCase() === 'true') return [];\nreturn [{ json: { cfg: M.config.buildConfig($env), trigger, startedAt: new Date().toISOString() } }];\n"
+      },
+      "notes": "Builds runtime config from env (no secrets in output)."
+    },
+    {
+      "id": "0bbe4186-e890-4ab8-8f0a-90ea40748000",
+      "name": "Clients",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Clients",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Clients"
+    },
+    {
+      "id": "bac77d3c-55d3-4d03-8c7d-c83dc73bef97",
+      "name": "Campaigns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Campaigns"
+    },
+    {
+      "id": "080804f4-b1fb-42de-8fbc-4ad43f367d2e",
+      "name": "Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Leads"
+    },
+    {
+      "id": "4df75d87-de03-435b-851b-3bfc93ee6902",
+      "name": "Emails",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Emails",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Emails"
+    },
+    {
+      "id": "5125495e-f1c5-4ef7-885d-11b86e0ff8df",
+      "name": "Replies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Replies",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Replies"
+    },
+    {
+      "id": "5cfeb1c4-b9f2-4aaa-8334-f76c126ce529",
+      "name": "Meetings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Meetings",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Meetings"
+    },
+    {
+      "id": "356370f4-3d9e-4752-8ad8-0125f46e7454",
+      "name": "Render dashboard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\nM.report = (function () {\n  const module = { exports: {} };\n/**\n * report.js – Module 8 metrics: funnel, rates, costs and the per-client guarantee tracker.\n */\nfunction linkOf(v) {\n  return Array.isArray(v) ? v[0] : v;\n}\n\nconst CONTACTED_OR_LATER = ['Contacted', 'Replied', 'Interested', 'Later', 'Not interested', 'Unsubscribed', 'Bounced', 'Meeting booked', 'Meeting held', 'No-show'];\nconst POSITIVE = ['Interested', 'Meeting booked', 'Meeting held', 'No-show'];\nconst MEETING = ['Meeting booked', 'Meeting held', 'No-show'];\n\nfunction within(dateStr, from, to) {\n  if (!dateStr) return false;\n  const t = new Date(dateStr).getTime();\n  return (!from || t >= new Date(from).getTime()) && (!to || t < new Date(to).getTime());\n}\n\nfunction round(n, d) {\n  const f = Math.pow(10, d === undefined ? 2 : d);\n  return Math.round(n * f) / f;\n}\n\n/** data: {campaigns, leads, emails, replies, meetings}; period: {from, to} (optional) */\nfunction campaignMetrics(campaign, data, period) {\n  period = period || {};\n  const leads = (data.leads || []).filter((l) => linkOf(l.campaign) === campaign.id || l.campaign_record_id === campaign.id);\n  const leadIds = new Set(leads.map((l) => l.id));\n  const inPeriod = (d) => !period.from || within(d, period.from, period.to);\n  const emails = (data.emails || []).filter((e) => leadIds.has(linkOf(e.lead)) && e.status === 'Sent' && inPeriod(e.sent_at));\n  const replies = (data.replies || []).filter((r) => leadIds.has(linkOf(r.lead)) && inPeriod(r.received_at));\n  const meetings = (data.meetings || []).filter((m) => leadIds.has(linkOf(m.lead)) && m.status !== 'Cancelled' && inPeriod(m.start_time || m.created_at));\n  const sourced = leads.filter((l) => inPeriod(l.sourced_at)).length;\n  const enriched = leads.filter((l) => l.status !== 'New' && l.status !== 'Rejected' && inPeriod(l.sourced_at)).length;\n  const contactedLeads = new Set(emails.map((e) => linkOf(e.lead))).size;\n  const repliedLeads = new Set(replies.filter((r) => r.category !== 'Bounce').map((r) => linkOf(r.lead))).size;\n  // positive = wants to talk or asks a concrete question before agreeing (both are real interest, not auto-replies)\n  const positive = replies.filter((r) => r.category === 'Interested' || r.category === 'Question').length;\n  const held = meetings.filter((m) => m.status === 'Held').length;\n  const cost = (Number(campaign.google_api_cost_eur) || 0) + (Number(campaign.ai_cost_eur) || 0);\n  return {\n    campaign_id: campaign.id,\n    name: campaign.name,\n    client: linkOf(campaign.client) || null,\n    leads_sourced: sourced,\n    enriched,\n    enriched_pct: sourced ? round((enriched / sourced) * 100, 1) : 0,\n    emails_sent: emails.length,\n    contacted: contactedLeads,\n    replied: repliedLeads,\n    reply_rate_pct: contactedLeads ? round((repliedLeads / contactedLeads) * 100, 1) : 0,\n    positive_replies: positive,\n    meetings_booked: meetings.length,\n    meetings_held: held,\n    cost_eur: round(cost, 4),\n    cost_per_lead_eur: sourced ? round(cost / sourced, 4) : 0,\n    cost_per_meeting_eur: meetings.length ? round(cost / meetings.length, 4) : null,\n    funnel: { sourced, enriched, contacted: contactedLeads, replied: repliedLeads, interested: positive, meeting_booked: meetings.length },\n  };\n}\n\nfunction monthStart(now) {\n  const d = new Date(now);\n  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();\n}\n\n/** Positive replies and meetings this month vs. the client's targets. */\nfunction guaranteeTracker(client, data, now) {\n  const from = monthStart(now || Date.now());\n  const camps = (data.campaigns || []).filter((c) => linkOf(c.client) === client.id);\n  let positive = 0;\n  let meetings = 0;\n  camps.forEach((c) => {\n    const m = campaignMetrics(c, data, { from });\n    positive += m.positive_replies;\n    meetings += m.meetings_booked;\n  });\n  const tp = Number(client.target_positive_replies) || 20;\n  const tm = Number(client.target_meetings) || 4;\n  return {\n    client_id: client.id,\n    name: client.name,\n    positive_replies: positive,\n    target_positive_replies: tp,\n    positive_pct: round(Math.min(100, (positive / tp) * 100), 1),\n    meetings,\n    target_meetings: tm,\n    meetings_pct: round(Math.min(100, (meetings / tm) * 100), 1),\n  };\n}\n\nfunction progressBar(pct) {\n  const filled = Math.round(Math.max(0, Math.min(100, pct)) / 10);\n  return '█'.repeat(filled) + '░'.repeat(10 - filled) + ` ${pct}%`;\n}\n\nfunction weeklyFacts(data, now) {\n  const to = new Date(now || Date.now());\n  const from = new Date(to.getTime() - 7 * 86400000);\n  return (data.campaigns || [])\n    .filter((c) => ['Live', 'Paused', 'Completed', 'Ready'].includes(c.status))\n    .map((c) => campaignMetrics(c, data, { from: from.toISOString(), to: to.toISOString() }));\n}\n\nconst reportApi = { campaignMetrics, guaranteeTracker, progressBar, weeklyFacts, monthStart, POSITIVE, MEETING, CONTACTED_OR_LATER };\nif (typeof module !== 'undefined' && module.exports) module.exports = reportApi;\n\n  return module.exports;\n})();\n\nM.dashboard = (function () {\n  const module = { exports: {} };\n/**\n * dashboard.js – the live dashboard (GET /webhook/dashboard[?client=<id>]), computed from Airtable on every load.\n * Per client: the guarantee (positive replies vs 20, meetings vs 4–5 this month, on track or behind for the day of the\n * month), the funnel, cost per lead and meeting, every campaign, the A/B subject test, recent replies, upcoming meetings.\n * Pure function: data in, escaped HTML out, so it is unit-tested without n8n. Uses report.js for the numbers.\n */\n// in n8n the builder embeds report.js first as M.report; in Node (tests) it is required\nfunction rep() {\n  /* global M */\n  if (typeof M !== 'undefined' && M.report) return M.report;\n  return require('./report'); // eslint-disable-line global-require\n}\n\nfunction esc(s) {\n  return String(s === undefined || s === null ? '' : s).replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\n}\nconst link = (v) => (Array.isArray(v) ? v[0] : v);\n// small amounts (cost per lead is ~0.001 €) keep their significant digits instead of rounding to 0,00 €\nconst eur = (n) => {\n  if (n === null || n === undefined || !Number.isFinite(Number(n))) return '–';\n  const v = Number(n);\n  const digits = v !== 0 && Math.abs(v) < 0.1 ? 4 : 2;\n  return v.toLocaleString('de-DE', { minimumFractionDigits: digits, maximumFractionDigits: digits }) + ' €';\n};\nconst pct = (a, b) => (b ? Math.round((a / b) * 1000) / 10 : 0);\n\n/** Share of the month already elapsed (Berlin time is close enough to UTC for a monthly pace). */\nfunction monthElapsed(now) {\n  const d = new Date(now);\n  const days = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();\n  return Math.min(1, (d.getUTCDate() - 1 + d.getUTCHours() / 24) / days);\n}\n\n/** On track when the target share reached is at least the share of the month elapsed (5 % grace). */\nfunction pace(value, target, now) {\n  const need = monthElapsed(now) * target;\n  if (value >= target) return { state: 'good', label: 'Ziel erreicht', icon: '✓' };\n  if (value + 0.05 * target >= need) return { state: 'good', label: 'im Plan', icon: '✓' };\n  return { state: 'warning', label: 'hinter Plan (Soll heute ' + Math.ceil(need) + ')', icon: '!' };\n}\n\n/** A/B test of the first subject line: sent and replied leads per variant, winner once both have 20+ sends. */\nfunction abTest(campaign, data) {\n  const leads = (data.leads || []).filter((l) => l.campaign_record_id === campaign.id || link(l.campaign) === campaign.id);\n  const byId = Object.fromEntries(leads.map((l) => [l.id, l]));\n  const sent = (data.emails || []).filter((e) => byId[e.lead_record_id || link(e.lead)] && Number(e.step) === 1 && e.status === 'Sent');\n  const replied = new Set((data.replies || []).filter((r) => r.category && r.category !== 'Bounce' && r.category !== 'Out of office').map((r) => r.lead_record_id || link(r.lead)));\n  const v = { A: { sent: 0, replied: 0 }, B: { sent: 0, replied: 0 } };\n  sent.forEach((e) => {\n    const l = byId[e.lead_record_id || link(e.lead)];\n    const k = l.subject_variant === 'B' ? 'B' : 'A';\n    v[k].sent += 1;\n    if (replied.has(l.id)) v[k].replied += 1;\n  });\n  ['A', 'B'].forEach((k) => { v[k].rate = pct(v[k].replied, v[k].sent); });\n  const first = sent.find((e) => e.subject) || {};\n  const b = sent.find((e) => e.subject_b) || {};\n  const winner = v.A.sent >= 20 && v.B.sent >= 20 && v.A.rate !== v.B.rate ? (v.A.rate > v.B.rate ? 'A' : 'B') : null;\n  return { subject_a: first.subject || '', subject_b: b.subject_b || '', A: v.A, B: v.B, winner };\n}\n\nfunction dashboardData(input) {\n  const o = input || {};\n  const now = o.now || Date.now();\n  const data = { campaigns: o.campaigns || [], leads: o.leads || [], emails: o.emails || [], replies: o.replies || [], meetings: o.meetings || [] };\n  const clients = (o.clients || []).filter((c) => !o.clientId || c.id === o.clientId);\n  const ids = new Set(clients.map((c) => c.id));\n  const campaigns = data.campaigns.filter((c) => ids.has(link(c.client) || c.client_record_id))\n    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));\n  const rows = campaigns.map((c) => Object.assign(rep().campaignMetrics(c, data), { status: c.status, clientName: (clients.find((k) => k.id === (link(c.client) || c.client_record_id)) || {}).name, ab: abTest(c, data) }));\n  const sum = (k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);\n  const totals = { leads_sourced: sum('leads_sourced'), enriched: sum('enriched'), emails_sent: sum('emails_sent'), contacted: sum('contacted'), replied: sum('replied'),\n    positive_replies: sum('positive_replies'), meetings_booked: sum('meetings_booked'), cost_eur: sum('cost_eur') };\n  totals.reply_rate_pct = pct(totals.replied, totals.contacted);\n  totals.cost_per_lead_eur = totals.leads_sourced ? totals.cost_eur / totals.leads_sourced : null;\n  totals.cost_per_meeting_eur = totals.meetings_booked ? totals.cost_eur / totals.meetings_booked : null;\n  const guarantees = clients.map((k) => {\n    const g = rep().guaranteeTracker(k, Object.assign({}, data, { campaigns: data.campaigns.map((c) => Object.assign({}, c, { client: link(c.client) || c.client_record_id })) }), now);\n    return Object.assign(g, { replyPace: pace(g.positive_replies, g.target_positive_replies, now), meetingPace: pace(g.meetings, g.target_meetings, now) });\n  });\n  const leadById = Object.fromEntries(data.leads.map((l) => [l.id, l]));\n  const campIds = new Set(campaigns.map((c) => c.id));\n  const inScope = (leadId) => { const l = leadById[leadId]; return l && campIds.has(l.campaign_record_id || link(l.campaign)); };\n  const recent = data.replies.filter((r) => inScope(r.lead_record_id || link(r.lead))).sort((a, b) => String(b.received_at).localeCompare(String(a.received_at))).slice(0, 8)\n    .map((r) => ({ when: r.received_at, company: (leadById[r.lead_record_id || link(r.lead)] || {}).company_name, category: r.category, summary: r.summary }));\n  const upcoming = data.meetings.filter((m) => m.status !== 'Cancelled' && inScope(m.lead_record_id || link(m.lead)) && new Date(m.start_time).getTime() >= new Date(now).getTime() - 3600000)\n    .sort((a, b) => String(a.start_time).localeCompare(String(b.start_time))).slice(0, 6)\n    .map((m) => ({ when: m.start_time, company: (leadById[m.lead_record_id || link(m.lead)] || {}).company_name, contact: (leadById[m.lead_record_id || link(m.lead)] || {}).contact_name, status: m.status }));\n  return { now, clients: o.clients || [], selected: o.clientId || '', rows, totals, guarantees, recent, upcoming };\n}\n\nconst berlin = (iso) => (iso ? new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(iso)) : '');\n\nfunction bar(value, max, label, title) {\n  const w = max ? Math.max(value ? 2 : 0, Math.round((value / max) * 100)) : 0;\n  return `<div class=\"bar\" title=\"${esc(title || label)}\"><span class=\"fill\" style=\"width:${w}%\"></span></div>`;\n}\n\nfunction renderDashboard(input) {\n  const d = dashboardData(input);\n  const t = d.totals;\n  const tiles = [\n    ['Positive Antworten', t.positive_replies, 'Interessiert oder konkrete Frage'],\n    ['Termine gebucht', t.meetings_booked, 'über den Calendly-Link'],\n    ['Antwortquote', t.reply_rate_pct + ' %', t.replied + ' von ' + t.contacted + ' kontaktierten Firmen'],\n    ['E-Mails gesendet', t.emails_sent, 'inkl. Follow-ups'],\n    ['Kosten pro Lead', eur(t.cost_per_lead_eur), 'Google + KI'],\n    ['Kosten pro Termin', eur(t.cost_per_meeting_eur), 'Google + KI, ohne Personal'],\n  ].map(([k, v, s]) => `<div class=\"tile\"><div class=\"k\">${esc(k)}</div><div class=\"v\">${esc(v)}</div><div class=\"s\">${esc(s)}</div></div>`).join('');\n  const guarantee = d.guarantees.map((g) => `<div class=\"card\"><h3>${esc(g.name)} · Garantie diesen Monat</h3>\n    ${[['Positive Antworten', g.positive_replies, g.target_positive_replies, g.replyPace], ['Qualifizierte Termine', g.meetings, g.target_meetings, g.meetingPace]].map(([k, v, tg, p]) => `\n    <div class=\"g\"><div class=\"gl\"><span>${esc(k)}</span><b>${esc(v)} / ${esc(tg)}</b></div>${bar(Math.min(v, tg), tg, k, k + ': ' + v + ' von ' + tg)}\n    <div class=\"st ${p.state}\"><span aria-hidden=\"true\">${p.icon}</span> ${esc(p.label)}</div></div>`).join('')}</div>`).join('');\n  const f = [['Gefunden (Google)', t.leads_sourced], ['Angereichert', t.enriched], ['Kontaktiert', t.contacted], ['Geantwortet', t.replied], ['Positiv', t.positive_replies], ['Termin', t.meetings_booked]];\n  const funnel = f.map(([k, v], i) => `<div class=\"fr\"><span class=\"fk\">${esc(k)}</span>${bar(v, f[0][1], k, k + ': ' + v + (i ? ' (' + pct(v, f[i - 1][1]) + ' % der vorherigen Stufe)' : ''))}<span class=\"fv\">${esc(v)}${i ? ' <small>' + pct(v, f[i - 1][1]) + ' %</small>' : ''}</span></div>`).join('');\n  const rows = d.rows.map((r) => `<tr><td><b>${esc(r.name)}</b><br><small>${esc(r.clientName || '')} · ${esc(r.status || '')}</small></td><td>${r.leads_sourced}</td><td>${r.emails_sent}</td><td>${r.reply_rate_pct} %</td><td>${r.positive_replies}</td><td>${r.meetings_booked}</td><td>${eur(r.cost_eur)}</td><td>${eur(r.cost_per_meeting_eur)}</td></tr>`).join('')\n    || '<tr><td colspan=\"8\">Noch keine Kampagnen.</td></tr>';\n  const ab = d.rows.filter((r) => r.ab.A.sent + r.ab.B.sent > 0).map((r) => `<tr><td>${esc(r.name)}</td><td>A: ${esc(r.ab.subject_a)}<br><small>${r.ab.A.replied}/${r.ab.A.sent} · ${r.ab.A.rate} %</small></td><td>B: ${esc(r.ab.subject_b || '–')}<br><small>${r.ab.B.replied}/${r.ab.B.sent} · ${r.ab.B.rate} %</small></td><td>${r.ab.winner ? '<b>' + r.ab.winner + '</b> gewinnt' : '<small>ab 20 Sendungen je Variante</small>'}</td></tr>`).join('')\n    || '<tr><td colspan=\"4\">Noch keine gesendeten Erst-E-Mails.</td></tr>';\n  const recent = d.recent.map((r) => `<li><small>${esc(berlin(r.when))}</small> <b>${esc(r.company || '')}</b> <span class=\"tag\">${esc(r.category || '')}</span><br>${esc(r.summary || '')}</li>`).join('') || '<li>Noch keine Antworten.</li>';\n  const upcoming = d.upcoming.map((m) => `<li><b>${esc(berlin(m.when))}</b> · ${esc(m.company || '')}${m.contact ? ' (' + esc(m.contact) + ')' : ''}</li>`).join('') || '<li>Keine anstehenden Termine.</li>';\n  const filter = [`<a href=\"?\" class=\"${d.selected ? '' : 'on'}\">Alle Clients</a>`].concat(d.clients.map((k) => `<a href=\"?client=${esc(k.id)}\" class=\"${d.selected === k.id ? 'on' : ''}\">${esc(k.name)}</a>`)).join('');\n  return `<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta http-equiv=\"refresh\" content=\"60\">\n<title>Nexsale Dashboard</title><style>\n:root{--bg:#f7f7f5;--card:#fcfcfb;--text:#1b1b1a;--muted:#666660;--line:#e6e5e0;--accent:#2a78d6;--track:#e9eef6;--good:#0ca30c;--goodtext:#006300;--warn:#fab219;--warntext:#8a5a00}\n@media (prefers-color-scheme:dark){:root{--bg:#121211;--card:#1a1a19;--text:#ecebe6;--muted:#a3a29b;--line:#2e2e2b;--accent:#3987e5;--track:#262a31;--good:#0ca30c;--goodtext:#5fd35f;--warn:#fab219;--warntext:#fab219}}\n*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif}\n.wrap{max-width:1100px;margin:0 auto;padding:20px 16px 40px}h1{font-size:20px;margin:0}h2{font-size:15px;margin:26px 0 10px}h3{font-size:14px;margin:0 0 10px}\n.top{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between}.top small{color:var(--muted)}\n.filter{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 4px}.filter a{padding:4px 10px;border:1px solid var(--line);border-radius:14px;color:var(--text);text-decoration:none}.filter a.on{border-color:var(--accent);color:var(--accent);font-weight:600}\n.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}.tile,.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}\n.k{color:var(--muted);font-size:12px}.v{font-size:26px;font-weight:650;margin:2px 0}.s{color:var(--muted);font-size:12px}\n.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}.g{margin:8px 0 12px}.gl{display:flex;justify-content:space-between}\n.bar{height:10px;background:var(--track);border-radius:5px;overflow:hidden;margin:4px 0}.fill{display:block;height:100%;background:var(--accent);border-radius:0 4px 4px 0}\n.bar:hover .fill{filter:brightness(1.12)}.st{font-size:12px;font-weight:600}.st.good{color:var(--goodtext)}.st.warning{color:var(--warntext)}\n.st span{display:inline-block;width:16px;height:16px;line-height:16px;text-align:center;border-radius:50%;color:#fff;font-size:11px}.st.good span{background:var(--good)}.st.warning span{background:var(--warn);color:#0b0b0b}\n.fr{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;margin:6px 0}.fk{color:var(--muted)}.fv{text-align:right;font-weight:600}.fv small{color:var(--muted);font-weight:400}\n.tw{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:10px}table{width:100%;border-collapse:collapse;min-width:640px}th,td{text-align:left;padding:8px 10px;border-top:1px solid var(--line);vertical-align:top}th{border-top:0;color:var(--muted);font-weight:500;font-size:12px}td small{color:var(--muted)}\n.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}ul{list-style:none;margin:0;padding:0}li{padding:8px 0;border-top:1px solid var(--line)}li:first-child{border-top:0}\n.tag{font-size:11px;border:1px solid var(--line);border-radius:10px;padding:0 6px;color:var(--muted)}\n@media (max-width:700px){.two{grid-template-columns:1fr}.fr{grid-template-columns:110px 1fr 70px}.v{font-size:22px}}\n</style></head><body><div class=\"wrap\">\n<div class=\"top\"><h1>Nexsale · Dashboard</h1><small>Stand ${esc(berlin(new Date(d.now).toISOString()))} · aktualisiert sich jede Minute</small></div>\n<nav class=\"filter\" aria-label=\"Client\">${filter}</nav>\n<h2>Garantie</h2><div class=\"cards\">${guarantee || '<div class=\"card\">Keine Clients.</div>'}</div>\n<h2>Kennzahlen (alle Kampagnen der Auswahl)</h2><div class=\"tiles\">${tiles}</div>\n<h2>Funnel</h2><div class=\"card\">${funnel}</div>\n<h2>Kampagnen</h2><div class=\"tw\"><table><tr><th>Kampagne</th><th>Leads</th><th>E-Mails</th><th>Antwortquote</th><th>Positiv</th><th>Termine</th><th>Kosten</th><th>pro Termin</th></tr>${rows}</table></div>\n<h2>A/B-Test Betreffzeile</h2><div class=\"tw\"><table><tr><th>Kampagne</th><th>Variante A</th><th>Variante B</th><th>Ergebnis</th></tr>${ab}</table></div>\n<div class=\"two\"><div><h2>Neueste Antworten</h2><div class=\"card\"><ul>${recent}</ul></div></div><div><h2>Anstehende Termine</h2><div class=\"card\"><ul>${upcoming}</ul></div></div></div>\n</div></body></html>`;\n}\n\nconst dashboardApi = { eur, renderDashboard, dashboardData, abTest, pace, monthElapsed, esc };\nif (typeof module !== 'undefined' && module.exports) module.exports = dashboardApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst q = $('Dashboard request').first().json.query || {};\nconst all = (n) => M.airtable.fromItems($(n).all());\nreturn [{ json: { html: M.dashboard.renderDashboard({ clients: all('Clients'), campaigns: all('Campaigns'), leads: all('Leads'), emails: all('Emails'),\n  replies: all('Replies'), meetings: all('Meetings'), clientId: String(q.client || '').replace(/[^A-Za-z0-9]/g, ''), now: new Date().toISOString() }) } }];\n"
+      }
+    },
+    {
+      "id": "5f628a28-0101-4130-85c7-9f69108940f4",
+      "name": "Show dashboard",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        0
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Dashboard request": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Clients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clients": {
+      "main": [
+        [
+          {
+            "node": "Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaigns": {
+      "main": [
+        [
+          {
+            "node": "Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leads": {
+      "main": [
+        [
+          {
+            "node": "Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emails": {
+      "main": [
+        [
+          {
+            "node": "Replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replies": {
+      "main": [
+        [
+          {
+            "node": "Meetings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meetings": {
+      "main": [
+        [
+          {
+            "node": "Render dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render dashboard": {
+      "main": [
+        [
+          {
+            "node": "Show dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "NxsWf00ErrorHndl"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "nexsaleFile": "08b_dashboard",
+    "description": "GET /webhook/dashboard[?client=<id>]: guarantee (replies vs 20, meetings vs 4–5) with pace, KPIs, funnel, campaigns, A/B subject test, recent replies, upcoming meetings. Computed live from Airtable."
+  },
+  "pinData": {},
+  "tags": []
+}

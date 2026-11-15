@@ -1,0 +1,118 @@
+{
+  "normal_01": {
+    "email": "t.becker@glanzwerk-berlin.example",
+    "contact_name": "Thomas Becker",
+    "contact_role": "Geschäftsführer",
+    "register_number": "HRB 201234 B",
+    "legal_form": "GmbH"
+  },
+  "normal_02": {
+    "email": "a.yilmaz@spreeblick-reinigung.example",
+    "contact_name": "Aylin Yilmaz",
+    "contact_role": "Geschäftsführer",
+    "register_number": "HRB198765",
+    "legal_form": "UG (haftungsbeschränkt)"
+  },
+  "normal_03": {
+    "email": "jan.hoffmann@blitzblank-buero.example",
+    "contact_name": "Jan Hoffmann",
+    "contact_role": "Inhaber",
+    "register_number": "HRA 54321 B",
+    "legal_form": "e.K."
+  },
+  "normal_04": {
+    "email": "s.neumann@reinraum-profis.example",
+    "contact_name": "Stefan Neumann",
+    "contact_role": "Geschäftsführer",
+    "register_number": "HRB 165432",
+    "legal_form": "GmbH"
+  },
+  "normal_05": {
+    "email": "lena@frischwind-reinigung.example",
+    "contact_name": "Lena Schmidt",
+    "contact_role": "Gesellschafter",
+    "register_number": null,
+    "legal_form": "GbR"
+  },
+  "normal_06": {
+    "email": "k.lehmann@sauberzauber.example",
+    "contact_name": "Katrin Lehmann",
+    "contact_role": "Geschäftsführer",
+    "register_number": "HRB 187654 B",
+    "legal_form": "GmbH"
+  },
+  "normal_07": {
+    "email": "m.braun@mustermann-gd.example",
+    "contact_name": "Michael Braun",
+    "contact_role": "Vorstand",
+    "register_number": "HRB 99887 B",
+    "legal_form": "AG"
+  },
+  "normal_08": {
+    "email": "h.jansen@elbe-reinigung.example",
+    "contact_name": "Henrik Jansen",
+    "contact_role": "Geschäftsführer",
+    "register_number": "HRA 123456",
+    "legal_form": "GmbH & Co. KG"
+  },
+  "normal_09": {
+    "email": "florian.huber@isar-facility.example",
+    "contact_name": "Florian Huber",
+    "contact_role": "Geschäftsführer",
+    "register_number": "HRB 245678",
+    "legal_form": "GmbH"
+  },
+  "normal_10": {
+    "email": "sophie.wagner@rhein-gm.example",
+    "contact_name": "Sophie Wagner",
+    "contact_role": "Geschäftsführer",
+    "register_number": "HRB 112233",
+    "legal_form": "GmbH"
+  },
+  "hard_at_email": {
+    "email": "a.schulz@hauptstadt-glas.example",
+    "contact_name": "Andreas Schulz",
+    "contact_role": "Geschäftsführer",
+    "register_number": "HRB 176001 B",
+    "legal_form": "GmbH"
+  },
+  "hard_two_directors": {
+    "email": "m.wolf@kiezsauber.example",
+    "contact_name": "Markus Wolf",
+    "contact_names": [
+      "Markus Wolf",
+      "Sabine Krüger"
+    ],
+    "contact_role": "Geschäftsführer",
+    "register_number": "HRB 176543 B",
+    "legal_form": "GmbH"
+  },
+  "hard_austria": {
+    "email": "lukas.gruber@donau-reinigung.example",
+    "contact_name": "Lukas Gruber",
+    "contact_role": "Geschäftsführer",
+    "register_number": "FN 456789 x",
+    "legal_form": "GmbH"
+  },
+  "hard_switzerland": {
+    "email": "beat.meier@zuerisee-reinigung.example",
+    "contact_name": "Beat Meier",
+    "contact_role": "Geschäftsführer",
+    "register_number": "CHE-123.456.789",
+    "legal_form": "AG"
+  },
+  "hard_no_impressum": {
+    "email": null,
+    "contact_name": null,
+    "contact_role": null,
+    "register_number": null,
+    "legal_form": null
+  },
+  "generic_info_only": {
+    "email": "info@cb-hausdienst.example",
+    "contact_name": null,
+    "contact_role": null,
+    "register_number": "HRB 150150 B",
+    "legal_form": "GmbH"
+  }
+}

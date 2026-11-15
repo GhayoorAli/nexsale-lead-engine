@@ -1,0 +1,8 @@
+{
+  "fixture": "tricky_stop",
+  "expected_category": "Unsubscribe",
+  "expected_branch": "Unsubscribe",
+  "subject": "Re: Unterhaltsreinigung",
+  "body": "STOP",
+  "auto_submitted": ""
+}

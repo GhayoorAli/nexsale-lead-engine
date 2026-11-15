@@ -1,0 +1,1180 @@
+{
+  "id": "NxsWf08Reporting",
+  "name": "Nexsale 08 – Dashboard metrics and weekly report",
+  "active": false,
+  "versionId": "c48a2fd2-8066-4359-84c6-5e43219d047e",
+  "nodes": [
+    {
+      "id": "0efec3d9-7df2-45c4-86be-57bf42232c94",
+      "name": "Every hour (metrics)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "8c5731ec-164d-460c-8835-ca2567e2b6d0",
+      "name": "Monday 08:00 (weekly report)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "6e4704eb-6f50-4622-8b11-aebbd6b0c6d7",
+      "name": "Run now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        360
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "reporting-run",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "2dd243a8-5882-4ac9-8999-cd5a6a14e376"
+    },
+    {
+      "id": "34cfd7f7-5bb8-4850-898e-765f76c60f99",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.config = (function () {\n  const module = { exports: {} };\n/**\n * config.js – builds the runtime config for every workflow from environment variables.\n * Used by the first \"Config\" Code node in each workflow. Secrets are NOT copied into\n * the output (execution data is stored in n8n); HTTP nodes read tokens from $env directly.\n */\nfunction bool(v, dflt) {\n  if (v === undefined || v === null || v === '') return dflt;\n  return String(v).trim().toLowerCase() === 'true';\n}\n\nfunction parseList(v) {\n  return String(v || '')\n    .split(/[,;\\s]+/)\n    .map((s) => s.trim().toLowerCase())\n    .filter(Boolean);\n}\n\nfunction parseLimit(v, demoMode) {\n  if (v === undefined || v === null || v === '') return demoMode ? 10 : null;\n  if (String(v).trim().toLowerCase() === 'off') return null;\n  const n = parseInt(v, 10);\n  return Number.isFinite(n) && n > 0 ? n : 10;\n}\n\nfunction trimSlash(u) {\n  return String(u || '').replace(/\\/+$/, '');\n}\n\nfunction buildConfig(env) {\n  env = env || {};\n  // Safe defaults: demo mode ON unless explicitly \"false\".\n  const demoMode = bool(env.DEMO_MODE, true);\n  const mock = bool(env.MOCK_EXTERNAL, false);\n  const mockBase = trimSlash(env.MOCK_BASE_URL || 'http://host.docker.internal:8787');\n  const real = {\n    airtable: 'https://api.airtable.com/v0',\n    googlePlaces: 'https://places.googleapis.com/v1',\n    openai: 'https://api.openai.com/v1',\n    anthropic: 'https://api.anthropic.com/v1',\n    slack: 'https://slack.com/api',\n    gmail: 'https://gmail.googleapis.com/gmail/v1',\n    hubspot: 'https://api.hubapi.com',\n    dns: 'https://dns.google',\n    web: '',\n    calendly: 'https://api.calendly.com',\n  };\n  const mocked = {\n    airtable: mockBase + '/airtable/v0',\n    googlePlaces: mockBase + '/google/v1',\n    openai: mockBase + '/ai/openai/v1',\n    anthropic: mockBase + '/ai/anthropic/v1',\n    slack: mockBase + '/slack/api',\n    gmail: mockBase + '/gmail/v1',\n    hubspot: mockBase + '/hubspot',\n    dns: mockBase + '/dns',\n    web: mockBase + '/web',\n    calendly: mockBase + '/calendly',\n  };\n  const urls = mock ? mocked : real;\n  const aiProvider = String(env.AI_PROVIDER || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : 'openai';\n  const allowlist = parseList(env.TEST_RECIPIENT_ALLOWLIST);\n  const conf = parseFloat(env.AUTO_REPLY_MIN_CONFIDENCE);\n  return {\n    demoMode,\n    mock,\n    allowRealSending: !demoMode && bool(env.ALLOW_REAL_SENDING, false),\n    // DEMO_MODE sends from an every-minute ticker; the test stack turns it off and drives sends by webhook\n    demoTicker: !bool(env.DISABLE_DEMO_TICKER, false),\n    // cap per run so one run always finishes before the next tick (no overlapping runs)\n    maxSendsPerRun: demoMode ? 6 : 5,\n    testLeadLimit: parseLimit(env.TEST_LEAD_LIMIT, demoMode),\n    allowlist,\n    testProspectEmail: String(env.TEST_PROSPECT_EMAIL || '').trim().toLowerCase(),\n    senderEmail: String(env.SENDER_EMAIL || '').trim().toLowerCase(),\n    autoReplyMinConfidence: Number.isFinite(conf) ? conf : 0.85,\n    unsureConfidence: 0.7,\n    timezone: 'Europe/Berlin',\n    airtableBaseId: env.AIRTABLE_BASE_ID || '',\n    airtableUrl: urls.airtable + '/' + (env.AIRTABLE_BASE_ID || ''),\n    googlePlacesUrl: urls.googlePlaces,\n    aiProvider,\n    aiModel: env.AI_MODEL || (aiProvider === 'anthropic' ? 'claude-haiku-5-5' : 'gpt-4o-mini'),\n    aiUrl: aiProvider === 'anthropic' ? urls.anthropic + '/messages' : urls.openai + '/chat/completions',\n    slackApiUrl: urls.slack,\n    slackChannel: env.SLACK_CHANNEL || '#leads',\n    gmailUrl: urls.gmail,\n    hubspotUrl: urls.hubspot,\n    dnsUrl: urls.dns,\n    webProxyUrl: urls.web,\n    calendlyLink: env.CALENDLY_LINK || '',\n    calendlyApiUrl: urls.calendly,\n    n8nBaseUrl: trimSlash(env.WEBHOOK_URL || 'http://localhost:5678'),\n    n8nInternalUrl: trimSlash(env.N8N_INTERNAL_URL || 'http://localhost:5678'),\n    interfaceUrl: env.AIRTABLE_INTERFACE_URL || (env.AIRTABLE_BASE_ID ? 'https://airtable.com/' + env.AIRTABLE_BASE_ID : ''),\n    googleCostPerRequestEur: 0.032,\n  };\n}\n\n/** URL to fetch a company web page; in mock mode served by the mock server. */\nfunction webUrl(cfg, domain, path) {\n  path = path || '/';\n  if (cfg.webProxyUrl) return cfg.webProxyUrl + '/' + domain + path;\n  return 'https://' + domain + path;\n}\n\nconst configApi = { buildConfig, webUrl, parseList, parseLimit };\nif (typeof module !== 'undefined' && module.exports) module.exports = configApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst trigger = $input.all().map((i) => i.json);\n// test stack only: schedules are switched off so tests drive every module through its webhook\nconst scheduled = trigger.length > 0 && trigger[0] && trigger[0]['Readable date'] !== undefined;\nif (scheduled && String($env.DISABLE_SCHEDULES).toLowerCase() === 'true') return [];\nreturn [{ json: { cfg: M.config.buildConfig($env), trigger, startedAt: new Date().toISOString() } }];\n"
+      },
+      "notes": "Builds runtime config from env (no secrets in output)."
+    },
+    {
+      "id": "3bbbf743-b75c-4279-83ba-536f3334ff86",
+      "name": "Clients",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Clients",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Clients"
+    },
+    {
+      "id": "4756345a-12db-46a2-80a0-e0ac2d028c34",
+      "name": "Campaigns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Campaigns"
+    },
+    {
+      "id": "b1dd1a32-da17-4521-895a-bd97abbd0cc4",
+      "name": "Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Leads"
+    },
+    {
+      "id": "b77f576c-c6ee-4de7-8684-44984d9909cc",
+      "name": "Emails",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Emails",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{status}='Sent'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Emails"
+    },
+    {
+      "id": "c39af22e-780a-4b48-833a-7b7dc739edaa",
+      "name": "Replies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Replies",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Replies"
+    },
+    {
+      "id": "89635982-227b-4e12-8fd2-574782ace58b",
+      "name": "Meetings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Meetings",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Meetings"
+    },
+    {
+      "id": "13df25ee-cf46-43a3-89f9-a1a8c7ab44e5",
+      "name": "Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\nM.report = (function () {\n  const module = { exports: {} };\n/**\n * report.js – Module 8 metrics: funnel, rates, costs and the per-client guarantee tracker.\n */\nfunction linkOf(v) {\n  return Array.isArray(v) ? v[0] : v;\n}\n\nconst CONTACTED_OR_LATER = ['Contacted', 'Replied', 'Interested', 'Later', 'Not interested', 'Unsubscribed', 'Bounced', 'Meeting booked', 'Meeting held', 'No-show'];\nconst POSITIVE = ['Interested', 'Meeting booked', 'Meeting held', 'No-show'];\nconst MEETING = ['Meeting booked', 'Meeting held', 'No-show'];\n\nfunction within(dateStr, from, to) {\n  if (!dateStr) return false;\n  const t = new Date(dateStr).getTime();\n  return (!from || t >= new Date(from).getTime()) && (!to || t < new Date(to).getTime());\n}\n\nfunction round(n, d) {\n  const f = Math.pow(10, d === undefined ? 2 : d);\n  return Math.round(n * f) / f;\n}\n\n/** data: {campaigns, leads, emails, replies, meetings}; period: {from, to} (optional) */\nfunction campaignMetrics(campaign, data, period) {\n  period = period || {};\n  const leads = (data.leads || []).filter((l) => linkOf(l.campaign) === campaign.id || l.campaign_record_id === campaign.id);\n  const leadIds = new Set(leads.map((l) => l.id));\n  const inPeriod = (d) => !period.from || within(d, period.from, period.to);\n  const emails = (data.emails || []).filter((e) => leadIds.has(linkOf(e.lead)) && e.status === 'Sent' && inPeriod(e.sent_at));\n  const replies = (data.replies || []).filter((r) => leadIds.has(linkOf(r.lead)) && inPeriod(r.received_at));\n  const meetings = (data.meetings || []).filter((m) => leadIds.has(linkOf(m.lead)) && m.status !== 'Cancelled' && inPeriod(m.start_time || m.created_at));\n  const sourced = leads.filter((l) => inPeriod(l.sourced_at)).length;\n  const enriched = leads.filter((l) => l.status !== 'New' && l.status !== 'Rejected' && inPeriod(l.sourced_at)).length;\n  const contactedLeads = new Set(emails.map((e) => linkOf(e.lead))).size;\n  const repliedLeads = new Set(replies.filter((r) => r.category !== 'Bounce').map((r) => linkOf(r.lead))).size;\n  // positive = wants to talk or asks a concrete question before agreeing (both are real interest, not auto-replies)\n  const positive = replies.filter((r) => r.category === 'Interested' || r.category === 'Question').length;\n  const held = meetings.filter((m) => m.status === 'Held').length;\n  const cost = (Number(campaign.google_api_cost_eur) || 0) + (Number(campaign.ai_cost_eur) || 0);\n  return {\n    campaign_id: campaign.id,\n    name: campaign.name,\n    client: linkOf(campaign.client) || null,\n    leads_sourced: sourced,\n    enriched,\n    enriched_pct: sourced ? round((enriched / sourced) * 100, 1) : 0,\n    emails_sent: emails.length,\n    contacted: contactedLeads,\n    replied: repliedLeads,\n    reply_rate_pct: contactedLeads ? round((repliedLeads / contactedLeads) * 100, 1) : 0,\n    positive_replies: positive,\n    meetings_booked: meetings.length,\n    meetings_held: held,\n    cost_eur: round(cost, 4),\n    cost_per_lead_eur: sourced ? round(cost / sourced, 4) : 0,\n    cost_per_meeting_eur: meetings.length ? round(cost / meetings.length, 4) : null,\n    funnel: { sourced, enriched, contacted: contactedLeads, replied: repliedLeads, interested: positive, meeting_booked: meetings.length },\n  };\n}\n\nfunction monthStart(now) {\n  const d = new Date(now);\n  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();\n}\n\n/** Positive replies and meetings this month vs. the client's targets. */\nfunction guaranteeTracker(client, data, now) {\n  const from = monthStart(now || Date.now());\n  const camps = (data.campaigns || []).filter((c) => linkOf(c.client) === client.id);\n  let positive = 0;\n  let meetings = 0;\n  camps.forEach((c) => {\n    const m = campaignMetrics(c, data, { from });\n    positive += m.positive_replies;\n    meetings += m.meetings_booked;\n  });\n  const tp = Number(client.target_positive_replies) || 20;\n  const tm = Number(client.target_meetings) || 4;\n  return {\n    client_id: client.id,\n    name: client.name,\n    positive_replies: positive,\n    target_positive_replies: tp,\n    positive_pct: round(Math.min(100, (positive / tp) * 100), 1),\n    meetings,\n    target_meetings: tm,\n    meetings_pct: round(Math.min(100, (meetings / tm) * 100), 1),\n  };\n}\n\nfunction progressBar(pct) {\n  const filled = Math.round(Math.max(0, Math.min(100, pct)) / 10);\n  return '█'.repeat(filled) + '░'.repeat(10 - filled) + ` ${pct}%`;\n}\n\nfunction weeklyFacts(data, now) {\n  const to = new Date(now || Date.now());\n  const from = new Date(to.getTime() - 7 * 86400000);\n  return (data.campaigns || [])\n    .filter((c) => ['Live', 'Paused', 'Completed', 'Ready'].includes(c.status))\n    .map((c) => campaignMetrics(c, data, { from: from.toISOString(), to: to.toISOString() }));\n}\n\nconst reportApi = { campaignMetrics, guaranteeTracker, progressBar, weeklyFacts, monthStart, POSITIVE, MEETING, CONTACTED_OR_LATER };\nif (typeof module !== 'undefined' && module.exports) module.exports = reportApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst data = {\n  clients: M.airtable.fromItems($('Clients').all()), campaigns: M.airtable.fromItems($('Campaigns').all()), leads: M.airtable.fromItems($('Leads').all()),\n  emails: M.airtable.fromItems($('Emails').all()), replies: M.airtable.fromItems($('Replies').all()), meetings: M.airtable.fromItems($('Meetings').all()),\n};\nconst now = new Date();\nconst campaigns = data.campaigns.map((c) => M.report.campaignMetrics(c, data));\nconst guarantees = data.clients.map((k) => M.report.guaranteeTracker(k, data, now));\nconst weekly = M.report.weeklyFacts(data, now);\nconst hook = $('Run now').isExecuted ? ($('Run now').first().json.body || {}) : {};\nconst isWeekly = $('Monday 08:00 (weekly report)').isExecuted || hook.weekly === true;\nreturn [{ json: { campaigns, guarantees, weekly, isWeekly, generated_at: now.toISOString() } }];\n"
+      }
+    },
+    {
+      "id": "371fb37d-8aa6-4d2b-8687-e04965df9fd3",
+      "name": "Campaign fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst m = $('Metrics').first().json;\nconst ts = m.generated_at;\nreturn M.airtable.updateBatches(m.campaigns.map((c) => ({ id: c.campaign_id, fields: {\n  leads_sourced: c.leads_sourced, enriched_pct: c.enriched_pct, emails_sent: c.emails_sent, reply_rate_pct: c.reply_rate_pct, positive_replies: c.positive_replies,\n  meetings_booked: c.meetings_booked, meetings_held: c.meetings_held, cost_per_lead_eur: c.cost_per_lead_eur, cost_per_meeting_eur: c.cost_per_meeting_eur, metrics_updated_at: ts,\n} }))).map((b) => ({ json: b }));\n"
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "80e1d36b-427c-459c-81f4-d9515328c398",
+      "name": "Any campaigns?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2400,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "766e791e-3b00-49cb-8498-96fa6fa91d2e",
+              "leftValue": "={{ ($json.records || []).length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6b26e41b-35fd-41de-81c1-06fccfbc6456",
+      "name": "Write campaign metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        0
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records, typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Campaigns (batches of 10)"
+    },
+    {
+      "id": "fe49016c-44b1-4e3b-865b-e771972f7abb",
+      "name": "Client fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst m = $('Metrics').first().json;\nreturn M.airtable.updateBatches(m.guarantees.map((g) => ({ id: g.client_id, fields: {\n  positive_replies_month: g.positive_replies, meetings_month: g.meetings, positive_pct: g.positive_pct, meetings_pct: g.meetings_pct, metrics_updated_at: m.generated_at,\n} }))).map((b) => ({ json: b }));\n"
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "72ea500b-24df-4bcb-8023-5a06513af7ae",
+      "name": "Any clients?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3120,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d464033f-103a-45c5-81ad-c4a63d918d88",
+              "leftValue": "={{ ($json.records || []).length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c608f810-5825-4147-8140-4de9895080b9",
+      "name": "Write client metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        0
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Clients",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records, typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Clients (batches of 10)"
+    },
+    {
+      "id": "d63cc98e-6e82-478b-8e76-629c51f0bb15",
+      "name": "Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: $('Metrics').first().json }];\n"
+      }
+    },
+    {
+      "id": "7027fec4-33a2-4aac-89a8-0e4cd66fe3d5",
+      "name": "Respond (manual run)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3840,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Metrics').first().json) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "02f37750-36de-4d98-8289-311994950efb",
+      "name": "Weekly report?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4080,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "723579c9-9a9e-4042-87e2-99dbdf28d983",
+              "leftValue": "={{ $('Metrics').first().json.isWeekly }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "4c690a21-37b2-47a3-88b1-4839df6abec9",
+      "name": "Report request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const m = $('Metrics').first().json;\nconst to = new Date(m.generated_at);\nconst from = new Date(to.getTime() - 7 * 86400000);\nreturn [{ json: { ref: 'weekly', prompt_id: 'weekly_report', max_tokens: 500, vars: {\n  period: from.toISOString().slice(0, 10) + ' bis ' + to.toISOString().slice(0, 10), facts: JSON.stringify(m.weekly.map((c) => { const x = Object.assign({}, c); delete x.funnel; return x; })),\n  guarantees: JSON.stringify(m.guarantees) } } }];\n"
+      }
+    },
+    {
+      "id": "3f1ed78b-ee34-4a4b-82fb-001440977e4b",
+      "name": "AI: weekly summary",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4560,
+        0
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf14AiCall000",
+          "mode": "id",
+          "cachedResultName": "14_ai_call"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "f13332c7-47c7-46c6-8d22-76d7228e17b3",
+      "name": "Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4800,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.report = (function () {\n  const module = { exports: {} };\n/**\n * report.js – Module 8 metrics: funnel, rates, costs and the per-client guarantee tracker.\n */\nfunction linkOf(v) {\n  return Array.isArray(v) ? v[0] : v;\n}\n\nconst CONTACTED_OR_LATER = ['Contacted', 'Replied', 'Interested', 'Later', 'Not interested', 'Unsubscribed', 'Bounced', 'Meeting booked', 'Meeting held', 'No-show'];\nconst POSITIVE = ['Interested', 'Meeting booked', 'Meeting held', 'No-show'];\nconst MEETING = ['Meeting booked', 'Meeting held', 'No-show'];\n\nfunction within(dateStr, from, to) {\n  if (!dateStr) return false;\n  const t = new Date(dateStr).getTime();\n  return (!from || t >= new Date(from).getTime()) && (!to || t < new Date(to).getTime());\n}\n\nfunction round(n, d) {\n  const f = Math.pow(10, d === undefined ? 2 : d);\n  return Math.round(n * f) / f;\n}\n\n/** data: {campaigns, leads, emails, replies, meetings}; period: {from, to} (optional) */\nfunction campaignMetrics(campaign, data, period) {\n  period = period || {};\n  const leads = (data.leads || []).filter((l) => linkOf(l.campaign) === campaign.id || l.campaign_record_id === campaign.id);\n  const leadIds = new Set(leads.map((l) => l.id));\n  const inPeriod = (d) => !period.from || within(d, period.from, period.to);\n  const emails = (data.emails || []).filter((e) => leadIds.has(linkOf(e.lead)) && e.status === 'Sent' && inPeriod(e.sent_at));\n  const replies = (data.replies || []).filter((r) => leadIds.has(linkOf(r.lead)) && inPeriod(r.received_at));\n  const meetings = (data.meetings || []).filter((m) => leadIds.has(linkOf(m.lead)) && m.status !== 'Cancelled' && inPeriod(m.start_time || m.created_at));\n  const sourced = leads.filter((l) => inPeriod(l.sourced_at)).length;\n  const enriched = leads.filter((l) => l.status !== 'New' && l.status !== 'Rejected' && inPeriod(l.sourced_at)).length;\n  const contactedLeads = new Set(emails.map((e) => linkOf(e.lead))).size;\n  const repliedLeads = new Set(replies.filter((r) => r.category !== 'Bounce').map((r) => linkOf(r.lead))).size;\n  // positive = wants to talk or asks a concrete question before agreeing (both are real interest, not auto-replies)\n  const positive = replies.filter((r) => r.category === 'Interested' || r.category === 'Question').length;\n  const held = meetings.filter((m) => m.status === 'Held').length;\n  const cost = (Number(campaign.google_api_cost_eur) || 0) + (Number(campaign.ai_cost_eur) || 0);\n  return {\n    campaign_id: campaign.id,\n    name: campaign.name,\n    client: linkOf(campaign.client) || null,\n    leads_sourced: sourced,\n    enriched,\n    enriched_pct: sourced ? round((enriched / sourced) * 100, 1) : 0,\n    emails_sent: emails.length,\n    contacted: contactedLeads,\n    replied: repliedLeads,\n    reply_rate_pct: contactedLeads ? round((repliedLeads / contactedLeads) * 100, 1) : 0,\n    positive_replies: positive,\n    meetings_booked: meetings.length,\n    meetings_held: held,\n    cost_eur: round(cost, 4),\n    cost_per_lead_eur: sourced ? round(cost / sourced, 4) : 0,\n    cost_per_meeting_eur: meetings.length ? round(cost / meetings.length, 4) : null,\n    funnel: { sourced, enriched, contacted: contactedLeads, replied: repliedLeads, interested: positive, meeting_booked: meetings.length },\n  };\n}\n\nfunction monthStart(now) {\n  const d = new Date(now);\n  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();\n}\n\n/** Positive replies and meetings this month vs. the client's targets. */\nfunction guaranteeTracker(client, data, now) {\n  const from = monthStart(now || Date.now());\n  const camps = (data.campaigns || []).filter((c) => linkOf(c.client) === client.id);\n  let positive = 0;\n  let meetings = 0;\n  camps.forEach((c) => {\n    const m = campaignMetrics(c, data, { from });\n    positive += m.positive_replies;\n    meetings += m.meetings_booked;\n  });\n  const tp = Number(client.target_positive_replies) || 20;\n  const tm = Number(client.target_meetings) || 4;\n  return {\n    client_id: client.id,\n    name: client.name,\n    positive_replies: positive,\n    target_positive_replies: tp,\n    positive_pct: round(Math.min(100, (positive / tp) * 100), 1),\n    meetings,\n    target_meetings: tm,\n    meetings_pct: round(Math.min(100, (meetings / tm) * 100), 1),\n  };\n}\n\nfunction progressBar(pct) {\n  const filled = Math.round(Math.max(0, Math.min(100, pct)) / 10);\n  return '█'.repeat(filled) + '░'.repeat(10 - filled) + ` ${pct}%`;\n}\n\nfunction weeklyFacts(data, now) {\n  const to = new Date(now || Date.now());\n  const from = new Date(to.getTime() - 7 * 86400000);\n  return (data.campaigns || [])\n    .filter((c) => ['Live', 'Paused', 'Completed', 'Ready'].includes(c.status))\n    .map((c) => campaignMetrics(c, data, { from: from.toISOString(), to: to.toISOString() }));\n}\n\nconst reportApi = { campaignMetrics, guaranteeTracker, progressBar, weeklyFacts, monthStart, POSITIVE, MEETING, CONTACTED_OR_LATER };\nif (typeof module !== 'undefined' && module.exports) module.exports = reportApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst m = $('Metrics').first().json;\nconst ai = $('AI: weekly summary').all().map((i) => i.json).find((x) => x && x.ref === 'weekly');\nconst totals = m.weekly.reduce((a, c) => ({ sent: a.sent + c.emails_sent, replied: a.replied + c.replied, positive: a.positive + c.positive_replies, meetings: a.meetings + c.meetings_booked }), { sent: 0, replied: 0, positive: 0, meetings: 0 });\nconst figures = 'Letzte 7 Tage: ' + totals.sent + ' E-Mails, ' + totals.replied + ' Antworten, ' + totals.positive + ' positiv, ' + totals.meetings + ' Termine.';\nconst bars = m.guarantees.map((g) => g.name + ': positive Antworten ' + M.report.progressBar(g.positive_pct) + ' (' + g.positive_replies + '/' + g.target_positive_replies + '), Termine ' + M.report.progressBar(g.meetings_pct) + ' (' + g.meetings + '/' + g.target_meetings + ')').join('\\n');\nconst summary = ai && ai.ok ? ai.data.summary : '(KI-Zusammenfassung nicht verfügbar)';\nconst text = ':bar_chart: *Wochenbericht*\\n' + figures + '\\n' + summary + '\\n' + bars;\nconst cfg = $('Config').first().json.cfg;\nreturn [{ json: { slack: { ref: 'weekly', text }, email: { ref: 'weekly-' + m.generated_at.slice(0, 10), to: cfg.senderEmail || cfg.testProspectEmail, subject: 'Wochenbericht Outbound', body: text.replace(/[*:]bar_chart[*:]?/g, '').replace(/\\*/g, ''), purpose: 'internal' } } }];\n"
+      }
+    },
+    {
+      "id": "91e0475d-489b-440d-879c-6add62d82e7e",
+      "name": "Slack report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5040,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: $('Report').first().json.slack }];\n"
+      }
+    },
+    {
+      "id": "daa94fc1-4254-4979-8bf8-4bc32d9962c0",
+      "name": "Post report",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        5280,
+        0
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf15SlackNtfy",
+          "mode": "id",
+          "cachedResultName": "15_slack_notify"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "e7910c16-0063-4f25-8086-c1a983bfce3c",
+      "name": "Email report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5520,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: $('Report').first().json.email }];\n"
+      }
+    },
+    {
+      "id": "9a84caad-4c61-409b-8cf6-9acc2b0a4451",
+      "name": "Send report (guarded)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        5760,
+        0
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf13SendEmail",
+          "mode": "id",
+          "cachedResultName": "13_send_email"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "Every hour (metrics)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monday 08:00 (weekly report)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Clients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clients": {
+      "main": [
+        [
+          {
+            "node": "Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaigns": {
+      "main": [
+        [
+          {
+            "node": "Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leads": {
+      "main": [
+        [
+          {
+            "node": "Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emails": {
+      "main": [
+        [
+          {
+            "node": "Replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replies": {
+      "main": [
+        [
+          {
+            "node": "Meetings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meetings": {
+      "main": [
+        [
+          {
+            "node": "Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics": {
+      "main": [
+        [
+          {
+            "node": "Campaign fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaign fields": {
+      "main": [
+        [
+          {
+            "node": "Any campaigns?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any campaigns?": {
+      "main": [
+        [
+          {
+            "node": "Write campaign metrics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Client fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write campaign metrics": {
+      "main": [
+        [
+          {
+            "node": "Client fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Client fields": {
+      "main": [
+        [
+          {
+            "node": "Any clients?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any clients?": {
+      "main": [
+        [
+          {
+            "node": "Write client metrics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write client metrics": {
+      "main": [
+        [
+          {
+            "node": "Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response": {
+      "main": [
+        [
+          {
+            "node": "Weekly report?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly report?": {
+      "main": [
+        [
+          {
+            "node": "Report request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond (manual run)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report request": {
+      "main": [
+        [
+          {
+            "node": "AI: weekly summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: weekly summary": {
+      "main": [
+        [
+          {
+            "node": "Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report": {
+      "main": [
+        [
+          {
+            "node": "Slack report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack report": {
+      "main": [
+        [
+          {
+            "node": "Post report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post report": {
+      "main": [
+        [
+          {
+            "node": "Email report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email report": {
+      "main": [
+        [
+          {
+            "node": "Send report (guarded)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send report (guarded)": {
+      "main": [
+        [
+          {
+            "node": "Respond (manual run)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "NxsWf00ErrorHndl"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "nexsaleFile": "08_reporting",
+    "description": "Writes funnel, rates, costs and guarantee progress onto Campaigns/Clients (Airtable Interface reads them). Monday 08:00: AI summary to Slack + email."
+  },
+  "pinData": {},
+  "tags": []
+}

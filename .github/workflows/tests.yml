@@ -1,0 +1,68 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      workflow_tests:
+        description: "Also run the level 2 workflow tests (Docker n8n + mock server)"
+        type: boolean
+        default: false
+
+jobs:
+  unit:
+    name: Unit tests (Jest, 80%+ coverage) + workflow lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit
+      - run: npm run lint:workflows
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/secret_scan.js
+      - name: No .env committed
+        run: test ! -f .env
+
+  python:
+    name: Python scripts (pytest, mock Airtable)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests python-dotenv pytest
+      - run: python tests/mock_server/server.py &
+      - run: sleep 2 && pytest tests/python -q
+
+  workflow-tests:
+    name: Level 2 workflow tests (n8n in Docker, MOCK_EXTERNAL=true)
+    if: github.event_name == 'workflow_dispatch' && inputs.workflow_tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests python-dotenv pytest
+      - run: python tests/mock_server/server.py &
+      - run: docker compose -p nexsale-test -f docker-compose.yml -f docker-compose.test.yml up -d
+      - run: |
+          for i in $(seq 1 60); do curl -sf localhost:5679/healthz && break; sleep 2; done
+          python tests/n8n_bootstrap.py
+          python setup/deploy_workflows.py --test-stack
+          python tests/workflows/run_module.py all

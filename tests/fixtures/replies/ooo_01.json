@@ -1,0 +1,8 @@
+{
+  "fixture": "ooo_01",
+  "expected_category": "Out of office",
+  "expected_branch": "Out of office",
+  "subject": "Abwesenheitsnotiz: Unterhaltsreinigung",
+  "body": "Vielen Dank für Ihre Nachricht. Ich bin bis zum 24.11.2026 nicht im Büro und habe keinen Zugriff auf E-Mails. In dringenden Fällen wenden Sie sich bitte an info@glanzwerk-berlin.example.",
+  "auto_submitted": "auto-replied"
+}

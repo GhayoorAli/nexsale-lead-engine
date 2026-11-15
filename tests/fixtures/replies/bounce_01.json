@@ -1,0 +1,7 @@
+{
+  "fixture": "bounce_01",
+  "expected_category": "Bounce",
+  "from_email": "mailer-daemon@googlemail.com",
+  "subject": "Delivery Status Notification (Failure)",
+  "body": "Address not found\n\nYour message wasn't delivered to t.becker@glanzwerk-berlin.example because the address couldn't be found."
+}

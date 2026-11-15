@@ -1,0 +1,1362 @@
+{
+  "id": "NxsWf11SlackActn",
+  "name": "Nexsale 11 – Slack buttons (click 3 and approvals)",
+  "active": false,
+  "versionId": "d446520a-a3bd-4e87-80e8-50d292c59271",
+  "nodes": [
+    {
+      "id": "54880195-72ed-41b3-82cf-2178d3cd32e8",
+      "name": "Slack interactivity",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "slack-actions",
+        "responseMode": "onReceived",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "webhookId": "e39f9b66-e14f-4750-8fb7-c28391789f08"
+    },
+    {
+      "id": "e5eeb75d-986d-4b67-8e20-ea0d399a4ef6",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.config = (function () {\n  const module = { exports: {} };\n/**\n * config.js – builds the runtime config for every workflow from environment variables.\n * Used by the first \"Config\" Code node in each workflow. Secrets are NOT copied into\n * the output (execution data is stored in n8n); HTTP nodes read tokens from $env directly.\n */\nfunction bool(v, dflt) {\n  if (v === undefined || v === null || v === '') return dflt;\n  return String(v).trim().toLowerCase() === 'true';\n}\n\nfunction parseList(v) {\n  return String(v || '')\n    .split(/[,;\\s]+/)\n    .map((s) => s.trim().toLowerCase())\n    .filter(Boolean);\n}\n\nfunction parseLimit(v, demoMode) {\n  if (v === undefined || v === null || v === '') return demoMode ? 10 : null;\n  if (String(v).trim().toLowerCase() === 'off') return null;\n  const n = parseInt(v, 10);\n  return Number.isFinite(n) && n > 0 ? n : 10;\n}\n\nfunction trimSlash(u) {\n  return String(u || '').replace(/\\/+$/, '');\n}\n\nfunction buildConfig(env) {\n  env = env || {};\n  // Safe defaults: demo mode ON unless explicitly \"false\".\n  const demoMode = bool(env.DEMO_MODE, true);\n  const mock = bool(env.MOCK_EXTERNAL, false);\n  const mockBase = trimSlash(env.MOCK_BASE_URL || 'http://host.docker.internal:8787');\n  const real = {\n    airtable: 'https://api.airtable.com/v0',\n    googlePlaces: 'https://places.googleapis.com/v1',\n    openai: 'https://api.openai.com/v1',\n    anthropic: 'https://api.anthropic.com/v1',\n    slack: 'https://slack.com/api',\n    gmail: 'https://gmail.googleapis.com/gmail/v1',\n    hubspot: 'https://api.hubapi.com',\n    dns: 'https://dns.google',\n    web: '',\n    calendly: 'https://api.calendly.com',\n  };\n  const mocked = {\n    airtable: mockBase + '/airtable/v0',\n    googlePlaces: mockBase + '/google/v1',\n    openai: mockBase + '/ai/openai/v1',\n    anthropic: mockBase + '/ai/anthropic/v1',\n    slack: mockBase + '/slack/api',\n    gmail: mockBase + '/gmail/v1',\n    hubspot: mockBase + '/hubspot',\n    dns: mockBase + '/dns',\n    web: mockBase + '/web',\n    calendly: mockBase + '/calendly',\n  };\n  const urls = mock ? mocked : real;\n  const aiProvider = String(env.AI_PROVIDER || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : 'openai';\n  const allowlist = parseList(env.TEST_RECIPIENT_ALLOWLIST);\n  const conf = parseFloat(env.AUTO_REPLY_MIN_CONFIDENCE);\n  return {\n    demoMode,\n    mock,\n    allowRealSending: !demoMode && bool(env.ALLOW_REAL_SENDING, false),\n    // DEMO_MODE sends from an every-minute ticker; the test stack turns it off and drives sends by webhook\n    demoTicker: !bool(env.DISABLE_DEMO_TICKER, false),\n    // cap per run so one run always finishes before the next tick (no overlapping runs)\n    maxSendsPerRun: demoMode ? 6 : 5,\n    testLeadLimit: parseLimit(env.TEST_LEAD_LIMIT, demoMode),\n    allowlist,\n    testProspectEmail: String(env.TEST_PROSPECT_EMAIL || '').trim().toLowerCase(),\n    senderEmail: String(env.SENDER_EMAIL || '').trim().toLowerCase(),\n    autoReplyMinConfidence: Number.isFinite(conf) ? conf : 0.85,\n    unsureConfidence: 0.7,\n    timezone: 'Europe/Berlin',\n    airtableBaseId: env.AIRTABLE_BASE_ID || '',\n    airtableUrl: urls.airtable + '/' + (env.AIRTABLE_BASE_ID || ''),\n    googlePlacesUrl: urls.googlePlaces,\n    aiProvider,\n    aiModel: env.AI_MODEL || (aiProvider === 'anthropic' ? 'claude-haiku-5-5' : 'gpt-4o-mini'),\n    aiUrl: aiProvider === 'anthropic' ? urls.anthropic + '/messages' : urls.openai + '/chat/completions',\n    slackApiUrl: urls.slack,\n    slackChannel: env.SLACK_CHANNEL || '#leads',\n    gmailUrl: urls.gmail,\n    hubspotUrl: urls.hubspot,\n    dnsUrl: urls.dns,\n    webProxyUrl: urls.web,\n    calendlyLink: env.CALENDLY_LINK || '',\n    calendlyApiUrl: urls.calendly,\n    n8nBaseUrl: trimSlash(env.WEBHOOK_URL || 'http://localhost:5678'),\n    n8nInternalUrl: trimSlash(env.N8N_INTERNAL_URL || 'http://localhost:5678'),\n    interfaceUrl: env.AIRTABLE_INTERFACE_URL || (env.AIRTABLE_BASE_ID ? 'https://airtable.com/' + env.AIRTABLE_BASE_ID : ''),\n    googleCostPerRequestEur: 0.032,\n  };\n}\n\n/** URL to fetch a company web page; in mock mode served by the mock server. */\nfunction webUrl(cfg, domain, path) {\n  path = path || '/';\n  if (cfg.webProxyUrl) return cfg.webProxyUrl + '/' + domain + path;\n  return 'https://' + domain + path;\n}\n\nconst configApi = { buildConfig, webUrl, parseList, parseLimit };\nif (typeof module !== 'undefined' && module.exports) module.exports = configApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst trigger = $input.all().map((i) => i.json);\n// test stack only: schedules are switched off so tests drive every module through its webhook\nconst scheduled = trigger.length > 0 && trigger[0] && trigger[0]['Readable date'] !== undefined;\nif (scheduled && String($env.DISABLE_SCHEDULES).toLowerCase() === 'true') return [];\nreturn [{ json: { cfg: M.config.buildConfig($env), trigger, startedAt: new Date().toISOString() } }];\n"
+      },
+      "notes": "Builds runtime config from env (no secrets in output)."
+    },
+    {
+      "id": "86ea02cd-e281-40f0-87e2-edc98fe3c41b",
+      "name": "Verify + parse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.slackSignature = (function () {\n  const module = { exports: {} };\n/**\n * slackSignature.js – verifies Slack request signatures (v0 HMAC-SHA256).\n * https://api.slack.com/authentication/verifying-requests-from-slack\n * `crypto` is passed in so the same code runs in Jest and in an n8n Code node.\n */\nconst MAX_AGE_SECONDS = 300;\n\nfunction timingSafeEqualStr(a, b, crypto) {\n  const A = Buffer.from(String(a));\n  const B = Buffer.from(String(b));\n  if (A.length !== B.length) return false;\n  return crypto.timingSafeEqual(A, B);\n}\n\nfunction signSlack(signingSecret, timestamp, rawBody, crypto) {\n  const base = `v0:${timestamp}:${rawBody}`;\n  return 'v0=' + crypto.createHmac('sha256', signingSecret).update(base, 'utf8').digest('hex');\n}\n\nfunction verifySlackSignature(opts) {\n  const { signingSecret, timestamp, rawBody, signature, crypto } = opts || {};\n  const now = opts && opts.now !== undefined ? opts.now : Math.floor(Date.now() / 1000);\n  if (!signingSecret) return { ok: false, reason: 'signing secret not configured' };\n  if (!timestamp || !signature) return { ok: false, reason: 'missing signature headers' };\n  const ts = Number(timestamp);\n  if (!Number.isFinite(ts)) return { ok: false, reason: 'bad timestamp' };\n  if (Math.abs(now - ts) > MAX_AGE_SECONDS) return { ok: false, reason: 'request too old' };\n  const expected = signSlack(signingSecret, timestamp, rawBody || '', crypto);\n  if (!timingSafeEqualStr(expected, signature, crypto)) return { ok: false, reason: 'signature mismatch' };\n  return { ok: true };\n}\n\n/** Slack sends application/x-www-form-urlencoded \"payload=<json>\". */\n/** Slack sends application/x-www-form-urlencoded \"payload=<json>\" (no URLSearchParams in n8n). */\nfunction parseSlackPayload(rawBody) {\n  const pairs = String(rawBody || '').split('&');\n  for (const pair of pairs) {\n    const i = pair.indexOf('=');\n    if (i < 0 || pair.slice(0, i) !== 'payload') continue;\n    try {\n      return JSON.parse(decodeURIComponent(pair.slice(i + 1).replace(/\\+/g, ' ')));\n    } catch (e) {\n      return null;\n    }\n  }\n  return null;\n}\n\nconst slackSignatureApi = { MAX_AGE_SECONDS, signSlack, verifySlackSignature, parseSlackPayload };\nif (typeof module !== 'undefined' && module.exports) module.exports = slackSignatureApi;\n\n  return module.exports;\n})();\n\nM.slackMessages = (function () {\n  const module = { exports: {} };\n/**\n * slackMessages.js – Block Kit messages for #leads. Button values carry\n * \"action|recordId\" so Module 11 knows what to do.\n */\nfunction section(text) {\n  return { type: 'section', text: { type: 'mrkdwn', text: String(text).slice(0, 2900) } };\n}\n\nfunction button(text, actionId, value, style, url) {\n  const b = { type: 'button', text: { type: 'plain_text', text }, action_id: actionId, value: String(value || '') };\n  if (style) b.style = style;\n  if (url) b.url = url;\n  return b;\n}\n\nfunction trunc(s, n) {\n  s = String(s || '');\n  return s.length > n ? s.slice(0, n - 1) + '…' : s;\n}\n\nfunction campaignReady(c) {\n  const samples = (c.samples || []).slice(0, 3);\n  const blocks = [\n    section(`:rocket: *Campaign ready: ${c.name}*` + (c.client ? `\\nFor *${c.client}* · sender ${c.sender || '–'}` : '') + `\\n*${c.leadCount}* leads with approved sequences · average lead score *${c.avgScore}* · average email quality *${c.avgQuality}*` +\n      (c.flagged ? `\\n:warning: ${c.flagged} lead(s) left out (quality below 80 after one rewrite)` : '') +\n      (c.rejected ? `\\n${c.rejected} lead(s) rejected during enrichment` : '')),\n  ];\n  samples.forEach((s, i) => {\n    blocks.push({ type: 'divider' });\n    blocks.push(section(`*Sample ${i + 1}: ${s.company}* (score ${s.score}, quality ${s.quality})\\n*Betreff:* ${s.subject}\\n${trunc(s.body, 600)}`));\n  });\n  blocks.push({\n    type: 'actions',\n    elements: [\n      button('Approve and launch', 'approve_launch', 'approve_launch|' + c.campaignRecordId, 'primary'),\n      ...(c.listUrl ? [button('Open full list', 'open_list', 'open_list|' + c.campaignRecordId, null, c.listUrl)] : []),\n    ],\n  });\n  return { text: `Campaign ready: ${c.name} (${c.leadCount} leads)`, blocks };\n}\n\nfunction interestedApproval(r) {\n  return {\n    text: `${r.kind || 'Interested'} reply from ${r.company} – approve the answer?`,\n    blocks: [\n      section(`:speech_balloon: *${r.kind || 'Interested'} reply* from *${r.company}* (${r.fromEmail}) · confidence ${r.confidence}\\n>${trunc(r.replyBody, 500).replace(/\\n/g, '\\n>')}`),\n      section(`*Suggested answer:*\\n${trunc(r.suggestedReply, 1200)}`),\n      {\n        type: 'actions',\n        elements: [\n          button('Approve and send', 'reply_approve', 'reply_approve|' + r.replyRecordId, 'primary'),\n          button('Edit', 'reply_edit', 'reply_edit|' + r.replyRecordId, null, r.editUrl || undefined),\n          button('Reject', 'reply_reject', 'reply_reject|' + r.replyRecordId, 'danger'),\n        ],\n      },\n    ],\n  };\n}\n\nfunction sortReply(r) {\n  const cats = [['Interested', 'sort_interested'], ['Later', 'sort_later'], ['Not interested', 'sort_not_interested'], ['Unsubscribe', 'sort_unsubscribe']];\n  return {\n    text: `Please sort this reply from ${r.company}`,\n    blocks: [\n      section(`:question: *Please sort this reply* from *${r.company}* (${r.fromEmail})\\nAI guess: ${r.category || 'unclear'} (confidence ${r.confidence})\\n>${trunc(r.replyBody, 800).replace(/\\n/g, '\\n>')}`),\n      { type: 'actions', elements: cats.map(([label, id]) => button(label, id, id + '|' + r.replyRecordId)) },\n    ],\n  };\n}\n\nfunction inboundLead(l) {\n  return {\n    text: `New ${l.temperature} inbound lead: ${l.name} (${l.company})`,\n    blocks: [\n      section(`:telephone_receiver: *New ${String(l.temperature).toUpperCase()} inbound lead* – call by ${l.due}\\n*${l.name}* · ${l.company} · ${l.phone || 'no phone'}\\n${l.brief}`),\n      {\n        type: 'actions',\n        elements: [button('Mark called', 'task_called', 'task_called|' + l.taskRecordId, 'primary'), button('Not reached', 'task_not_reached', 'task_not_reached|' + l.taskRecordId)],\n      },\n    ],\n  };\n}\n\nfunction heldOrNoShow(m) {\n  return {\n    text: `Meeting with ${m.company}: held or no-show?`,\n    blocks: [\n      section(`:calendar: Meeting with *${m.company}* started at ${m.start}. Held or no-show?`),\n      { type: 'actions', elements: [button('Held', 'meeting_held', 'meeting_held|' + m.meetingRecordId, 'primary'), button('No-show', 'meeting_noshow', 'meeting_noshow|' + m.meetingRecordId, 'danger')] },\n    ],\n  };\n}\n\n/** Replaces the buttons with \"<Action> by <user> at <time>\". */\nfunction resolvedMessage(original, label, user, when) {\n  const blocks = ((original && original.blocks) || []).filter((b) => b.type !== 'actions');\n  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `:white_check_mark: ${label} by ${user} at ${when}` }] });\n  return { text: `${label} by ${user}`, blocks };\n}\n\nfunction parseActionValue(value) {\n  const [action, recordId] = String(value || '').split('|');\n  return { action, recordId };\n}\n\nconst slackMessagesApi = { campaignReady, interestedApproval, sortReply, inboundLead, heldOrNoShow, resolvedMessage, parseActionValue, section };\nif (typeof module !== 'undefined' && module.exports) module.exports = slackMessagesApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst crypto = require('crypto');\nconst item = $('Slack interactivity').first();\nlet raw = '';\ntry { raw = (await this.helpers.getBinaryDataBuffer(0, 'data')).toString('utf8'); } catch (e) { raw = ''; }\nconst h = item.json.headers || {};\nconst v = M.slackSignature.verifySlackSignature({ signingSecret: $env.SLACK_SIGNING_SECRET, timestamp: h['x-slack-request-timestamp'], signature: h['x-slack-signature'], rawBody: raw, crypto });\nif (!v.ok) throw new Error('Slack signature rejected: ' + v.reason);\nconst p = M.slackSignature.parseSlackPayload(raw);\nif (!p || !p.actions || !p.actions[0]) return [];\nconst a = M.slackMessages.parseActionValue(p.actions[0].value);\nconst user = (p.user && (p.user.username || p.user.name)) || 'someone';\nconst route = a.action.startsWith('sort_') ? 'sort' : a.action;\nconst when = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }).format(new Date());\nreturn [{ json: { route, action: a.action, recordId: a.recordId, user, when, channel: (p.channel && p.channel.id) || (p.container && p.container.channel_id), ts: (p.message && p.message.ts) || (p.container && p.container.message_ts), original: p.message || {} } }];\n"
+      }
+    },
+    {
+      "id": "a3202566-32f9-4a5a-8831-75cc40b1d4fd",
+      "name": "Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c039ec34-fc02-433e-8a90-f244e8063e73",
+                    "leftValue": "={{ $('Verify + parse').first().json.route }}",
+                    "rightValue": "approve_launch",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "approve_launch"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "857b7a76-8511-4160-8c26-4e445c7b775d",
+                    "leftValue": "={{ $('Verify + parse').first().json.route }}",
+                    "rightValue": "reply_approve",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "reply_approve"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "28ba3916-e734-4e48-8f4b-d42cf7941e5e",
+                    "leftValue": "={{ $('Verify + parse').first().json.route }}",
+                    "rightValue": "reply_reject",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "reply_reject"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "46c0a8ec-7405-4304-8303-b917f14d3f31",
+                    "leftValue": "={{ $('Verify + parse').first().json.route }}",
+                    "rightValue": "sort",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "sort"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "dd25a92e-4b7d-4e65-884e-e83ca2eb91c1",
+                    "leftValue": "={{ $('Verify + parse').first().json.route }}",
+                    "rightValue": "task_called",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "task_called"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "1439ce28-de0c-4181-87ca-31f61a22ef96",
+                    "leftValue": "={{ $('Verify + parse').first().json.route }}",
+                    "rightValue": "task_not_reached",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "task_not_reached"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "d6f67a6b-f9d5-4f88-881e-415de7bdb136",
+                    "leftValue": "={{ $('Verify + parse').first().json.route }}",
+                    "rightValue": "meeting_held",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "meeting_held"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "046f7d63-6236-4895-8e8b-7248d7d20698",
+                    "leftValue": "={{ $('Verify + parse').first().json.route }}",
+                    "rightValue": "meeting_noshow",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "meeting_noshow"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      }
+    },
+    {
+      "id": "0c2648d5-19b2-404a-8097-3d8494674175",
+      "name": "Campaign → Launch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        -540
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ id: $('Verify + parse').first().json.recordId, fields: { status: 'Launch', launched_by: $('Verify + parse').first().json.user } }], typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Campaigns (batches of 10)"
+    },
+    {
+      "id": "d7d84589-d798-4eff-8866-b662e252a049",
+      "name": "Run launch checks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        -540
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.n8nInternalUrl }}/webhook/campaign-launch",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ campaign_record_id: $('Verify + parse').first().json.recordId, approved_by: $('Verify + parse').first().json.user }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "notes": "Starts campaign-launch right away (the schedule is the fallback)"
+    },
+    {
+      "id": "04aff747-b880-41d9-844a-9a13ab361f07",
+      "name": "Launch clicked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        -540
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.slackMessages = (function () {\n  const module = { exports: {} };\n/**\n * slackMessages.js – Block Kit messages for #leads. Button values carry\n * \"action|recordId\" so Module 11 knows what to do.\n */\nfunction section(text) {\n  return { type: 'section', text: { type: 'mrkdwn', text: String(text).slice(0, 2900) } };\n}\n\nfunction button(text, actionId, value, style, url) {\n  const b = { type: 'button', text: { type: 'plain_text', text }, action_id: actionId, value: String(value || '') };\n  if (style) b.style = style;\n  if (url) b.url = url;\n  return b;\n}\n\nfunction trunc(s, n) {\n  s = String(s || '');\n  return s.length > n ? s.slice(0, n - 1) + '…' : s;\n}\n\nfunction campaignReady(c) {\n  const samples = (c.samples || []).slice(0, 3);\n  const blocks = [\n    section(`:rocket: *Campaign ready: ${c.name}*` + (c.client ? `\\nFor *${c.client}* · sender ${c.sender || '–'}` : '') + `\\n*${c.leadCount}* leads with approved sequences · average lead score *${c.avgScore}* · average email quality *${c.avgQuality}*` +\n      (c.flagged ? `\\n:warning: ${c.flagged} lead(s) left out (quality below 80 after one rewrite)` : '') +\n      (c.rejected ? `\\n${c.rejected} lead(s) rejected during enrichment` : '')),\n  ];\n  samples.forEach((s, i) => {\n    blocks.push({ type: 'divider' });\n    blocks.push(section(`*Sample ${i + 1}: ${s.company}* (score ${s.score}, quality ${s.quality})\\n*Betreff:* ${s.subject}\\n${trunc(s.body, 600)}`));\n  });\n  blocks.push({\n    type: 'actions',\n    elements: [\n      button('Approve and launch', 'approve_launch', 'approve_launch|' + c.campaignRecordId, 'primary'),\n      ...(c.listUrl ? [button('Open full list', 'open_list', 'open_list|' + c.campaignRecordId, null, c.listUrl)] : []),\n    ],\n  });\n  return { text: `Campaign ready: ${c.name} (${c.leadCount} leads)`, blocks };\n}\n\nfunction interestedApproval(r) {\n  return {\n    text: `${r.kind || 'Interested'} reply from ${r.company} – approve the answer?`,\n    blocks: [\n      section(`:speech_balloon: *${r.kind || 'Interested'} reply* from *${r.company}* (${r.fromEmail}) · confidence ${r.confidence}\\n>${trunc(r.replyBody, 500).replace(/\\n/g, '\\n>')}`),\n      section(`*Suggested answer:*\\n${trunc(r.suggestedReply, 1200)}`),\n      {\n        type: 'actions',\n        elements: [\n          button('Approve and send', 'reply_approve', 'reply_approve|' + r.replyRecordId, 'primary'),\n          button('Edit', 'reply_edit', 'reply_edit|' + r.replyRecordId, null, r.editUrl || undefined),\n          button('Reject', 'reply_reject', 'reply_reject|' + r.replyRecordId, 'danger'),\n        ],\n      },\n    ],\n  };\n}\n\nfunction sortReply(r) {\n  const cats = [['Interested', 'sort_interested'], ['Later', 'sort_later'], ['Not interested', 'sort_not_interested'], ['Unsubscribe', 'sort_unsubscribe']];\n  return {\n    text: `Please sort this reply from ${r.company}`,\n    blocks: [\n      section(`:question: *Please sort this reply* from *${r.company}* (${r.fromEmail})\\nAI guess: ${r.category || 'unclear'} (confidence ${r.confidence})\\n>${trunc(r.replyBody, 800).replace(/\\n/g, '\\n>')}`),\n      { type: 'actions', elements: cats.map(([label, id]) => button(label, id, id + '|' + r.replyRecordId)) },\n    ],\n  };\n}\n\nfunction inboundLead(l) {\n  return {\n    text: `New ${l.temperature} inbound lead: ${l.name} (${l.company})`,\n    blocks: [\n      section(`:telephone_receiver: *New ${String(l.temperature).toUpperCase()} inbound lead* – call by ${l.due}\\n*${l.name}* · ${l.company} · ${l.phone || 'no phone'}\\n${l.brief}`),\n      {\n        type: 'actions',\n        elements: [button('Mark called', 'task_called', 'task_called|' + l.taskRecordId, 'primary'), button('Not reached', 'task_not_reached', 'task_not_reached|' + l.taskRecordId)],\n      },\n    ],\n  };\n}\n\nfunction heldOrNoShow(m) {\n  return {\n    text: `Meeting with ${m.company}: held or no-show?`,\n    blocks: [\n      section(`:calendar: Meeting with *${m.company}* started at ${m.start}. Held or no-show?`),\n      { type: 'actions', elements: [button('Held', 'meeting_held', 'meeting_held|' + m.meetingRecordId, 'primary'), button('No-show', 'meeting_noshow', 'meeting_noshow|' + m.meetingRecordId, 'danger')] },\n    ],\n  };\n}\n\n/** Replaces the buttons with \"<Action> by <user> at <time>\". */\nfunction resolvedMessage(original, label, user, when) {\n  const blocks = ((original && original.blocks) || []).filter((b) => b.type !== 'actions');\n  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `:white_check_mark: ${label} by ${user} at ${when}` }] });\n  return { text: `${label} by ${user}`, blocks };\n}\n\nfunction parseActionValue(value) {\n  const [action, recordId] = String(value || '').split('|');\n  return { action, recordId };\n}\n\nconst slackMessagesApi = { campaignReady, interestedApproval, sortReply, inboundLead, heldOrNoShow, resolvedMessage, parseActionValue, section };\nif (typeof module !== 'undefined' && module.exports) module.exports = slackMessagesApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst a = $('Verify + parse').first().json;\nconst label = 'Approve and launch';\nconst m = M.slackMessages.resolvedMessage(a.original, label, a.user, a.when);\nreturn [{ json: { ref: a.recordId, update_ts: a.ts, channel: a.channel, text: m.text, blocks: m.blocks } }];\n"
+      }
+    },
+    {
+      "id": "504ba276-f667-4cd5-8ad1-5e0d7d85871d",
+      "name": "Load reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        -360
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Replies/{{ $('Verify + parse').first().json.recordId }}",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: get Replies"
+    },
+    {
+      "id": "b8532fb4-1afc-4ba1-870b-701bbe978b45",
+      "name": "Load lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        -360
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads/{{ $('Load reply').first().json.fields.lead_record_id }}",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: get Leads"
+    },
+    {
+      "id": "a933e250-0a39-474d-8a00-71b99d4a6179",
+      "name": "Approved answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        -360
+      ],
+      "parameters": {
+        "jsCode": "const r = $('Load reply').first().json.fields;\nconst l = $('Load lead').first().json.fields;\nif (r.reply_approved) throw new Error('Reply already answered – not sending twice');\nreturn [{ json: { ref: $('Load reply').first().json.id, to: l.email, subject: 'Re: ' + String(r.subject || '').replace(/^(\\s*(\\[TEST\\]|Re:|AW:)\\s*)+/i, ''), body: r.suggested_reply, threadId: r.thread_id || '', purpose: 'reply' } }];\n"
+      }
+    },
+    {
+      "id": "0652b4f2-980e-493a-8761-2c7349ef967a",
+      "name": "Send answer (guarded)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1680,
+        -360
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf13SendEmail",
+          "mode": "id",
+          "cachedResultName": "13_send_email"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": false
+    },
+    {
+      "id": "a964ff1c-9b76-4fc3-8355-dd7ff244e653",
+      "name": "Reply approved",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        -360
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Replies",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ id: $('Load reply').first().json.id, fields: { reply_approved: true, handled_at: new Date().toISOString(), handled_by: $('Verify + parse').first().json.user } }], typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Replies (batches of 10)"
+    },
+    {
+      "id": "e9a92f84-de38-4799-881c-d05e5c8703c6",
+      "name": "Approve clicked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        -360
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.slackMessages = (function () {\n  const module = { exports: {} };\n/**\n * slackMessages.js – Block Kit messages for #leads. Button values carry\n * \"action|recordId\" so Module 11 knows what to do.\n */\nfunction section(text) {\n  return { type: 'section', text: { type: 'mrkdwn', text: String(text).slice(0, 2900) } };\n}\n\nfunction button(text, actionId, value, style, url) {\n  const b = { type: 'button', text: { type: 'plain_text', text }, action_id: actionId, value: String(value || '') };\n  if (style) b.style = style;\n  if (url) b.url = url;\n  return b;\n}\n\nfunction trunc(s, n) {\n  s = String(s || '');\n  return s.length > n ? s.slice(0, n - 1) + '…' : s;\n}\n\nfunction campaignReady(c) {\n  const samples = (c.samples || []).slice(0, 3);\n  const blocks = [\n    section(`:rocket: *Campaign ready: ${c.name}*` + (c.client ? `\\nFor *${c.client}* · sender ${c.sender || '–'}` : '') + `\\n*${c.leadCount}* leads with approved sequences · average lead score *${c.avgScore}* · average email quality *${c.avgQuality}*` +\n      (c.flagged ? `\\n:warning: ${c.flagged} lead(s) left out (quality below 80 after one rewrite)` : '') +\n      (c.rejected ? `\\n${c.rejected} lead(s) rejected during enrichment` : '')),\n  ];\n  samples.forEach((s, i) => {\n    blocks.push({ type: 'divider' });\n    blocks.push(section(`*Sample ${i + 1}: ${s.company}* (score ${s.score}, quality ${s.quality})\\n*Betreff:* ${s.subject}\\n${trunc(s.body, 600)}`));\n  });\n  blocks.push({\n    type: 'actions',\n    elements: [\n      button('Approve and launch', 'approve_launch', 'approve_launch|' + c.campaignRecordId, 'primary'),\n      ...(c.listUrl ? [button('Open full list', 'open_list', 'open_list|' + c.campaignRecordId, null, c.listUrl)] : []),\n    ],\n  });\n  return { text: `Campaign ready: ${c.name} (${c.leadCount} leads)`, blocks };\n}\n\nfunction interestedApproval(r) {\n  return {\n    text: `${r.kind || 'Interested'} reply from ${r.company} – approve the answer?`,\n    blocks: [\n      section(`:speech_balloon: *${r.kind || 'Interested'} reply* from *${r.company}* (${r.fromEmail}) · confidence ${r.confidence}\\n>${trunc(r.replyBody, 500).replace(/\\n/g, '\\n>')}`),\n      section(`*Suggested answer:*\\n${trunc(r.suggestedReply, 1200)}`),\n      {\n        type: 'actions',\n        elements: [\n          button('Approve and send', 'reply_approve', 'reply_approve|' + r.replyRecordId, 'primary'),\n          button('Edit', 'reply_edit', 'reply_edit|' + r.replyRecordId, null, r.editUrl || undefined),\n          button('Reject', 'reply_reject', 'reply_reject|' + r.replyRecordId, 'danger'),\n        ],\n      },\n    ],\n  };\n}\n\nfunction sortReply(r) {\n  const cats = [['Interested', 'sort_interested'], ['Later', 'sort_later'], ['Not interested', 'sort_not_interested'], ['Unsubscribe', 'sort_unsubscribe']];\n  return {\n    text: `Please sort this reply from ${r.company}`,\n    blocks: [\n      section(`:question: *Please sort this reply* from *${r.company}* (${r.fromEmail})\\nAI guess: ${r.category || 'unclear'} (confidence ${r.confidence})\\n>${trunc(r.replyBody, 800).replace(/\\n/g, '\\n>')}`),\n      { type: 'actions', elements: cats.map(([label, id]) => button(label, id, id + '|' + r.replyRecordId)) },\n    ],\n  };\n}\n\nfunction inboundLead(l) {\n  return {\n    text: `New ${l.temperature} inbound lead: ${l.name} (${l.company})`,\n    blocks: [\n      section(`:telephone_receiver: *New ${String(l.temperature).toUpperCase()} inbound lead* – call by ${l.due}\\n*${l.name}* · ${l.company} · ${l.phone || 'no phone'}\\n${l.brief}`),\n      {\n        type: 'actions',\n        elements: [button('Mark called', 'task_called', 'task_called|' + l.taskRecordId, 'primary'), button('Not reached', 'task_not_reached', 'task_not_reached|' + l.taskRecordId)],\n      },\n    ],\n  };\n}\n\nfunction heldOrNoShow(m) {\n  return {\n    text: `Meeting with ${m.company}: held or no-show?`,\n    blocks: [\n      section(`:calendar: Meeting with *${m.company}* started at ${m.start}. Held or no-show?`),\n      { type: 'actions', elements: [button('Held', 'meeting_held', 'meeting_held|' + m.meetingRecordId, 'primary'), button('No-show', 'meeting_noshow', 'meeting_noshow|' + m.meetingRecordId, 'danger')] },\n    ],\n  };\n}\n\n/** Replaces the buttons with \"<Action> by <user> at <time>\". */\nfunction resolvedMessage(original, label, user, when) {\n  const blocks = ((original && original.blocks) || []).filter((b) => b.type !== 'actions');\n  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `:white_check_mark: ${label} by ${user} at ${when}` }] });\n  return { text: `${label} by ${user}`, blocks };\n}\n\nfunction parseActionValue(value) {\n  const [action, recordId] = String(value || '').split('|');\n  return { action, recordId };\n}\n\nconst slackMessagesApi = { campaignReady, interestedApproval, sortReply, inboundLead, heldOrNoShow, resolvedMessage, parseActionValue, section };\nif (typeof module !== 'undefined' && module.exports) module.exports = slackMessagesApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst a = $('Verify + parse').first().json;\nconst label = 'Approved';\nconst m = M.slackMessages.resolvedMessage(a.original, label, a.user, a.when);\nreturn [{ json: { ref: a.recordId, update_ts: a.ts, channel: a.channel, text: m.text, blocks: m.blocks } }];\n"
+      }
+    },
+    {
+      "id": "a0415c09-1992-4dea-89b9-1830108e2ada",
+      "name": "Reply rejected",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        -180
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Replies",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ id: $('Verify + parse').first().json.recordId, fields: { reply_approved: false, handled_at: new Date().toISOString(), handled_by: 'rejected by ' + $('Verify + parse').first().json.user } }], typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Replies (batches of 10)"
+    },
+    {
+      "id": "3c0dfcd3-7922-4060-891c-383fe4d3f523",
+      "name": "Reject clicked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -180
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.slackMessages = (function () {\n  const module = { exports: {} };\n/**\n * slackMessages.js – Block Kit messages for #leads. Button values carry\n * \"action|recordId\" so Module 11 knows what to do.\n */\nfunction section(text) {\n  return { type: 'section', text: { type: 'mrkdwn', text: String(text).slice(0, 2900) } };\n}\n\nfunction button(text, actionId, value, style, url) {\n  const b = { type: 'button', text: { type: 'plain_text', text }, action_id: actionId, value: String(value || '') };\n  if (style) b.style = style;\n  if (url) b.url = url;\n  return b;\n}\n\nfunction trunc(s, n) {\n  s = String(s || '');\n  return s.length > n ? s.slice(0, n - 1) + '…' : s;\n}\n\nfunction campaignReady(c) {\n  const samples = (c.samples || []).slice(0, 3);\n  const blocks = [\n    section(`:rocket: *Campaign ready: ${c.name}*` + (c.client ? `\\nFor *${c.client}* · sender ${c.sender || '–'}` : '') + `\\n*${c.leadCount}* leads with approved sequences · average lead score *${c.avgScore}* · average email quality *${c.avgQuality}*` +\n      (c.flagged ? `\\n:warning: ${c.flagged} lead(s) left out (quality below 80 after one rewrite)` : '') +\n      (c.rejected ? `\\n${c.rejected} lead(s) rejected during enrichment` : '')),\n  ];\n  samples.forEach((s, i) => {\n    blocks.push({ type: 'divider' });\n    blocks.push(section(`*Sample ${i + 1}: ${s.company}* (score ${s.score}, quality ${s.quality})\\n*Betreff:* ${s.subject}\\n${trunc(s.body, 600)}`));\n  });\n  blocks.push({\n    type: 'actions',\n    elements: [\n      button('Approve and launch', 'approve_launch', 'approve_launch|' + c.campaignRecordId, 'primary'),\n      ...(c.listUrl ? [button('Open full list', 'open_list', 'open_list|' + c.campaignRecordId, null, c.listUrl)] : []),\n    ],\n  });\n  return { text: `Campaign ready: ${c.name} (${c.leadCount} leads)`, blocks };\n}\n\nfunction interestedApproval(r) {\n  return {\n    text: `${r.kind || 'Interested'} reply from ${r.company} – approve the answer?`,\n    blocks: [\n      section(`:speech_balloon: *${r.kind || 'Interested'} reply* from *${r.company}* (${r.fromEmail}) · confidence ${r.confidence}\\n>${trunc(r.replyBody, 500).replace(/\\n/g, '\\n>')}`),\n      section(`*Suggested answer:*\\n${trunc(r.suggestedReply, 1200)}`),\n      {\n        type: 'actions',\n        elements: [\n          button('Approve and send', 'reply_approve', 'reply_approve|' + r.replyRecordId, 'primary'),\n          button('Edit', 'reply_edit', 'reply_edit|' + r.replyRecordId, null, r.editUrl || undefined),\n          button('Reject', 'reply_reject', 'reply_reject|' + r.replyRecordId, 'danger'),\n        ],\n      },\n    ],\n  };\n}\n\nfunction sortReply(r) {\n  const cats = [['Interested', 'sort_interested'], ['Later', 'sort_later'], ['Not interested', 'sort_not_interested'], ['Unsubscribe', 'sort_unsubscribe']];\n  return {\n    text: `Please sort this reply from ${r.company}`,\n    blocks: [\n      section(`:question: *Please sort this reply* from *${r.company}* (${r.fromEmail})\\nAI guess: ${r.category || 'unclear'} (confidence ${r.confidence})\\n>${trunc(r.replyBody, 800).replace(/\\n/g, '\\n>')}`),\n      { type: 'actions', elements: cats.map(([label, id]) => button(label, id, id + '|' + r.replyRecordId)) },\n    ],\n  };\n}\n\nfunction inboundLead(l) {\n  return {\n    text: `New ${l.temperature} inbound lead: ${l.name} (${l.company})`,\n    blocks: [\n      section(`:telephone_receiver: *New ${String(l.temperature).toUpperCase()} inbound lead* – call by ${l.due}\\n*${l.name}* · ${l.company} · ${l.phone || 'no phone'}\\n${l.brief}`),\n      {\n        type: 'actions',\n        elements: [button('Mark called', 'task_called', 'task_called|' + l.taskRecordId, 'primary'), button('Not reached', 'task_not_reached', 'task_not_reached|' + l.taskRecordId)],\n      },\n    ],\n  };\n}\n\nfunction heldOrNoShow(m) {\n  return {\n    text: `Meeting with ${m.company}: held or no-show?`,\n    blocks: [\n      section(`:calendar: Meeting with *${m.company}* started at ${m.start}. Held or no-show?`),\n      { type: 'actions', elements: [button('Held', 'meeting_held', 'meeting_held|' + m.meetingRecordId, 'primary'), button('No-show', 'meeting_noshow', 'meeting_noshow|' + m.meetingRecordId, 'danger')] },\n    ],\n  };\n}\n\n/** Replaces the buttons with \"<Action> by <user> at <time>\". */\nfunction resolvedMessage(original, label, user, when) {\n  const blocks = ((original && original.blocks) || []).filter((b) => b.type !== 'actions');\n  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `:white_check_mark: ${label} by ${user} at ${when}` }] });\n  return { text: `${label} by ${user}`, blocks };\n}\n\nfunction parseActionValue(value) {\n  const [action, recordId] = String(value || '').split('|');\n  return { action, recordId };\n}\n\nconst slackMessagesApi = { campaignReady, interestedApproval, sortReply, inboundLead, heldOrNoShow, resolvedMessage, parseActionValue, section };\nif (typeof module !== 'undefined' && module.exports) module.exports = slackMessagesApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst a = $('Verify + parse').first().json;\nconst label = 'Rejected';\nconst m = M.slackMessages.resolvedMessage(a.original, label, a.user, a.when);\nreturn [{ json: { ref: a.recordId, update_ts: a.ts, channel: a.channel, text: m.text, blocks: m.blocks } }];\n"
+      }
+    },
+    {
+      "id": "82d4e9ef-e003-4e69-85ab-bee5bf63a472",
+      "name": "Re-run reply branch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.n8nInternalUrl }}/webhook/reply-ingest",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ reprocess_reply_id: $('Verify + parse').first().json.recordId, handled_by: $('Verify + parse').first().json.user, forced_category: ({ sort_interested: 'Interested', sort_later: 'Later', sort_not_interested: 'Not interested', sort_unsubscribe: 'Unsubscribe' })[$('Verify + parse').first().json.action] }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "notes": "Starts reply-ingest right away (the schedule is the fallback)"
+    },
+    {
+      "id": "46963392-5ecf-4443-83e3-9ef6253e57a0",
+      "name": "Sort clicked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.slackMessages = (function () {\n  const module = { exports: {} };\n/**\n * slackMessages.js – Block Kit messages for #leads. Button values carry\n * \"action|recordId\" so Module 11 knows what to do.\n */\nfunction section(text) {\n  return { type: 'section', text: { type: 'mrkdwn', text: String(text).slice(0, 2900) } };\n}\n\nfunction button(text, actionId, value, style, url) {\n  const b = { type: 'button', text: { type: 'plain_text', text }, action_id: actionId, value: String(value || '') };\n  if (style) b.style = style;\n  if (url) b.url = url;\n  return b;\n}\n\nfunction trunc(s, n) {\n  s = String(s || '');\n  return s.length > n ? s.slice(0, n - 1) + '…' : s;\n}\n\nfunction campaignReady(c) {\n  const samples = (c.samples || []).slice(0, 3);\n  const blocks = [\n    section(`:rocket: *Campaign ready: ${c.name}*` + (c.client ? `\\nFor *${c.client}* · sender ${c.sender || '–'}` : '') + `\\n*${c.leadCount}* leads with approved sequences · average lead score *${c.avgScore}* · average email quality *${c.avgQuality}*` +\n      (c.flagged ? `\\n:warning: ${c.flagged} lead(s) left out (quality below 80 after one rewrite)` : '') +\n      (c.rejected ? `\\n${c.rejected} lead(s) rejected during enrichment` : '')),\n  ];\n  samples.forEach((s, i) => {\n    blocks.push({ type: 'divider' });\n    blocks.push(section(`*Sample ${i + 1}: ${s.company}* (score ${s.score}, quality ${s.quality})\\n*Betreff:* ${s.subject}\\n${trunc(s.body, 600)}`));\n  });\n  blocks.push({\n    type: 'actions',\n    elements: [\n      button('Approve and launch', 'approve_launch', 'approve_launch|' + c.campaignRecordId, 'primary'),\n      ...(c.listUrl ? [button('Open full list', 'open_list', 'open_list|' + c.campaignRecordId, null, c.listUrl)] : []),\n    ],\n  });\n  return { text: `Campaign ready: ${c.name} (${c.leadCount} leads)`, blocks };\n}\n\nfunction interestedApproval(r) {\n  return {\n    text: `${r.kind || 'Interested'} reply from ${r.company} – approve the answer?`,\n    blocks: [\n      section(`:speech_balloon: *${r.kind || 'Interested'} reply* from *${r.company}* (${r.fromEmail}) · confidence ${r.confidence}\\n>${trunc(r.replyBody, 500).replace(/\\n/g, '\\n>')}`),\n      section(`*Suggested answer:*\\n${trunc(r.suggestedReply, 1200)}`),\n      {\n        type: 'actions',\n        elements: [\n          button('Approve and send', 'reply_approve', 'reply_approve|' + r.replyRecordId, 'primary'),\n          button('Edit', 'reply_edit', 'reply_edit|' + r.replyRecordId, null, r.editUrl || undefined),\n          button('Reject', 'reply_reject', 'reply_reject|' + r.replyRecordId, 'danger'),\n        ],\n      },\n    ],\n  };\n}\n\nfunction sortReply(r) {\n  const cats = [['Interested', 'sort_interested'], ['Later', 'sort_later'], ['Not interested', 'sort_not_interested'], ['Unsubscribe', 'sort_unsubscribe']];\n  return {\n    text: `Please sort this reply from ${r.company}`,\n    blocks: [\n      section(`:question: *Please sort this reply* from *${r.company}* (${r.fromEmail})\\nAI guess: ${r.category || 'unclear'} (confidence ${r.confidence})\\n>${trunc(r.replyBody, 800).replace(/\\n/g, '\\n>')}`),\n      { type: 'actions', elements: cats.map(([label, id]) => button(label, id, id + '|' + r.replyRecordId)) },\n    ],\n  };\n}\n\nfunction inboundLead(l) {\n  return {\n    text: `New ${l.temperature} inbound lead: ${l.name} (${l.company})`,\n    blocks: [\n      section(`:telephone_receiver: *New ${String(l.temperature).toUpperCase()} inbound lead* – call by ${l.due}\\n*${l.name}* · ${l.company} · ${l.phone || 'no phone'}\\n${l.brief}`),\n      {\n        type: 'actions',\n        elements: [button('Mark called', 'task_called', 'task_called|' + l.taskRecordId, 'primary'), button('Not reached', 'task_not_reached', 'task_not_reached|' + l.taskRecordId)],\n      },\n    ],\n  };\n}\n\nfunction heldOrNoShow(m) {\n  return {\n    text: `Meeting with ${m.company}: held or no-show?`,\n    blocks: [\n      section(`:calendar: Meeting with *${m.company}* started at ${m.start}. Held or no-show?`),\n      { type: 'actions', elements: [button('Held', 'meeting_held', 'meeting_held|' + m.meetingRecordId, 'primary'), button('No-show', 'meeting_noshow', 'meeting_noshow|' + m.meetingRecordId, 'danger')] },\n    ],\n  };\n}\n\n/** Replaces the buttons with \"<Action> by <user> at <time>\". */\nfunction resolvedMessage(original, label, user, when) {\n  const blocks = ((original && original.blocks) || []).filter((b) => b.type !== 'actions');\n  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `:white_check_mark: ${label} by ${user} at ${when}` }] });\n  return { text: `${label} by ${user}`, blocks };\n}\n\nfunction parseActionValue(value) {\n  const [action, recordId] = String(value || '').split('|');\n  return { action, recordId };\n}\n\nconst slackMessagesApi = { campaignReady, interestedApproval, sortReply, inboundLead, heldOrNoShow, resolvedMessage, parseActionValue, section };\nif (typeof module !== 'undefined' && module.exports) module.exports = slackMessagesApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst a = $('Verify + parse').first().json;\nconst label = 'Sorted as ' + ({ sort_interested: 'Interested', sort_later: 'Later', sort_not_interested: 'Not interested', sort_unsubscribe: 'Unsubscribe' })[a.action];\nconst m = M.slackMessages.resolvedMessage(a.original, label, a.user, a.when);\nreturn [{ json: { ref: a.recordId, update_ts: a.ts, channel: a.channel, text: m.text, blocks: m.blocks } }];\n"
+      }
+    },
+    {
+      "id": "771b03d4-fefc-41d5-88af-e27c3d4daeee",
+      "name": "Task done",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        180
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Tasks",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ id: $('Verify + parse').first().json.recordId, fields: { status: 'Done' } }], typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Tasks (batches of 10)"
+    },
+    {
+      "id": "b5620db2-13e3-4417-8c5b-7b234f53ecfe",
+      "name": "Called clicked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        180
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.slackMessages = (function () {\n  const module = { exports: {} };\n/**\n * slackMessages.js – Block Kit messages for #leads. Button values carry\n * \"action|recordId\" so Module 11 knows what to do.\n */\nfunction section(text) {\n  return { type: 'section', text: { type: 'mrkdwn', text: String(text).slice(0, 2900) } };\n}\n\nfunction button(text, actionId, value, style, url) {\n  const b = { type: 'button', text: { type: 'plain_text', text }, action_id: actionId, value: String(value || '') };\n  if (style) b.style = style;\n  if (url) b.url = url;\n  return b;\n}\n\nfunction trunc(s, n) {\n  s = String(s || '');\n  return s.length > n ? s.slice(0, n - 1) + '…' : s;\n}\n\nfunction campaignReady(c) {\n  const samples = (c.samples || []).slice(0, 3);\n  const blocks = [\n    section(`:rocket: *Campaign ready: ${c.name}*` + (c.client ? `\\nFor *${c.client}* · sender ${c.sender || '–'}` : '') + `\\n*${c.leadCount}* leads with approved sequences · average lead score *${c.avgScore}* · average email quality *${c.avgQuality}*` +\n      (c.flagged ? `\\n:warning: ${c.flagged} lead(s) left out (quality below 80 after one rewrite)` : '') +\n      (c.rejected ? `\\n${c.rejected} lead(s) rejected during enrichment` : '')),\n  ];\n  samples.forEach((s, i) => {\n    blocks.push({ type: 'divider' });\n    blocks.push(section(`*Sample ${i + 1}: ${s.company}* (score ${s.score}, quality ${s.quality})\\n*Betreff:* ${s.subject}\\n${trunc(s.body, 600)}`));\n  });\n  blocks.push({\n    type: 'actions',\n    elements: [\n      button('Approve and launch', 'approve_launch', 'approve_launch|' + c.campaignRecordId, 'primary'),\n      ...(c.listUrl ? [button('Open full list', 'open_list', 'open_list|' + c.campaignRecordId, null, c.listUrl)] : []),\n    ],\n  });\n  return { text: `Campaign ready: ${c.name} (${c.leadCount} leads)`, blocks };\n}\n\nfunction interestedApproval(r) {\n  return {\n    text: `${r.kind || 'Interested'} reply from ${r.company} – approve the answer?`,\n    blocks: [\n      section(`:speech_balloon: *${r.kind || 'Interested'} reply* from *${r.company}* (${r.fromEmail}) · confidence ${r.confidence}\\n>${trunc(r.replyBody, 500).replace(/\\n/g, '\\n>')}`),\n      section(`*Suggested answer:*\\n${trunc(r.suggestedReply, 1200)}`),\n      {\n        type: 'actions',\n        elements: [\n          button('Approve and send', 'reply_approve', 'reply_approve|' + r.replyRecordId, 'primary'),\n          button('Edit', 'reply_edit', 'reply_edit|' + r.replyRecordId, null, r.editUrl || undefined),\n          button('Reject', 'reply_reject', 'reply_reject|' + r.replyRecordId, 'danger'),\n        ],\n      },\n    ],\n  };\n}\n\nfunction sortReply(r) {\n  const cats = [['Interested', 'sort_interested'], ['Later', 'sort_later'], ['Not interested', 'sort_not_interested'], ['Unsubscribe', 'sort_unsubscribe']];\n  return {\n    text: `Please sort this reply from ${r.company}`,\n    blocks: [\n      section(`:question: *Please sort this reply* from *${r.company}* (${r.fromEmail})\\nAI guess: ${r.category || 'unclear'} (confidence ${r.confidence})\\n>${trunc(r.replyBody, 800).replace(/\\n/g, '\\n>')}`),\n      { type: 'actions', elements: cats.map(([label, id]) => button(label, id, id + '|' + r.replyRecordId)) },\n    ],\n  };\n}\n\nfunction inboundLead(l) {\n  return {\n    text: `New ${l.temperature} inbound lead: ${l.name} (${l.company})`,\n    blocks: [\n      section(`:telephone_receiver: *New ${String(l.temperature).toUpperCase()} inbound lead* – call by ${l.due}\\n*${l.name}* · ${l.company} · ${l.phone || 'no phone'}\\n${l.brief}`),\n      {\n        type: 'actions',\n        elements: [button('Mark called', 'task_called', 'task_called|' + l.taskRecordId, 'primary'), button('Not reached', 'task_not_reached', 'task_not_reached|' + l.taskRecordId)],\n      },\n    ],\n  };\n}\n\nfunction heldOrNoShow(m) {\n  return {\n    text: `Meeting with ${m.company}: held or no-show?`,\n    blocks: [\n      section(`:calendar: Meeting with *${m.company}* started at ${m.start}. Held or no-show?`),\n      { type: 'actions', elements: [button('Held', 'meeting_held', 'meeting_held|' + m.meetingRecordId, 'primary'), button('No-show', 'meeting_noshow', 'meeting_noshow|' + m.meetingRecordId, 'danger')] },\n    ],\n  };\n}\n\n/** Replaces the buttons with \"<Action> by <user> at <time>\". */\nfunction resolvedMessage(original, label, user, when) {\n  const blocks = ((original && original.blocks) || []).filter((b) => b.type !== 'actions');\n  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `:white_check_mark: ${label} by ${user} at ${when}` }] });\n  return { text: `${label} by ${user}`, blocks };\n}\n\nfunction parseActionValue(value) {\n  const [action, recordId] = String(value || '').split('|');\n  return { action, recordId };\n}\n\nconst slackMessagesApi = { campaignReady, interestedApproval, sortReply, inboundLead, heldOrNoShow, resolvedMessage, parseActionValue, section };\nif (typeof module !== 'undefined' && module.exports) module.exports = slackMessagesApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst a = $('Verify + parse').first().json;\nconst label = 'Marked called';\nconst m = M.slackMessages.resolvedMessage(a.original, label, a.user, a.when);\nreturn [{ json: { ref: a.recordId, update_ts: a.ts, channel: a.channel, text: m.text, blocks: m.blocks } }];\n"
+      }
+    },
+    {
+      "id": "1bef869f-80f2-4bef-8b15-df58221e0418",
+      "name": "Task +2 h",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        360
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Tasks",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ id: $('Verify + parse').first().json.recordId, fields: { due_at: new Date(Date.now() + 7200000).toISOString() } }], typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Tasks (batches of 10)"
+    },
+    {
+      "id": "123c211a-20c1-4b10-8d89-c167541fd0bd",
+      "name": "Not reached clicked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        360
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.slackMessages = (function () {\n  const module = { exports: {} };\n/**\n * slackMessages.js – Block Kit messages for #leads. Button values carry\n * \"action|recordId\" so Module 11 knows what to do.\n */\nfunction section(text) {\n  return { type: 'section', text: { type: 'mrkdwn', text: String(text).slice(0, 2900) } };\n}\n\nfunction button(text, actionId, value, style, url) {\n  const b = { type: 'button', text: { type: 'plain_text', text }, action_id: actionId, value: String(value || '') };\n  if (style) b.style = style;\n  if (url) b.url = url;\n  return b;\n}\n\nfunction trunc(s, n) {\n  s = String(s || '');\n  return s.length > n ? s.slice(0, n - 1) + '…' : s;\n}\n\nfunction campaignReady(c) {\n  const samples = (c.samples || []).slice(0, 3);\n  const blocks = [\n    section(`:rocket: *Campaign ready: ${c.name}*` + (c.client ? `\\nFor *${c.client}* · sender ${c.sender || '–'}` : '') + `\\n*${c.leadCount}* leads with approved sequences · average lead score *${c.avgScore}* · average email quality *${c.avgQuality}*` +\n      (c.flagged ? `\\n:warning: ${c.flagged} lead(s) left out (quality below 80 after one rewrite)` : '') +\n      (c.rejected ? `\\n${c.rejected} lead(s) rejected during enrichment` : '')),\n  ];\n  samples.forEach((s, i) => {\n    blocks.push({ type: 'divider' });\n    blocks.push(section(`*Sample ${i + 1}: ${s.company}* (score ${s.score}, quality ${s.quality})\\n*Betreff:* ${s.subject}\\n${trunc(s.body, 600)}`));\n  });\n  blocks.push({\n    type: 'actions',\n    elements: [\n      button('Approve and launch', 'approve_launch', 'approve_launch|' + c.campaignRecordId, 'primary'),\n      ...(c.listUrl ? [button('Open full list', 'open_list', 'open_list|' + c.campaignRecordId, null, c.listUrl)] : []),\n    ],\n  });\n  return { text: `Campaign ready: ${c.name} (${c.leadCount} leads)`, blocks };\n}\n\nfunction interestedApproval(r) {\n  return {\n    text: `${r.kind || 'Interested'} reply from ${r.company} – approve the answer?`,\n    blocks: [\n      section(`:speech_balloon: *${r.kind || 'Interested'} reply* from *${r.company}* (${r.fromEmail}) · confidence ${r.confidence}\\n>${trunc(r.replyBody, 500).replace(/\\n/g, '\\n>')}`),\n      section(`*Suggested answer:*\\n${trunc(r.suggestedReply, 1200)}`),\n      {\n        type: 'actions',\n        elements: [\n          button('Approve and send', 'reply_approve', 'reply_approve|' + r.replyRecordId, 'primary'),\n          button('Edit', 'reply_edit', 'reply_edit|' + r.replyRecordId, null, r.editUrl || undefined),\n          button('Reject', 'reply_reject', 'reply_reject|' + r.replyRecordId, 'danger'),\n        ],\n      },\n    ],\n  };\n}\n\nfunction sortReply(r) {\n  const cats = [['Interested', 'sort_interested'], ['Later', 'sort_later'], ['Not interested', 'sort_not_interested'], ['Unsubscribe', 'sort_unsubscribe']];\n  return {\n    text: `Please sort this reply from ${r.company}`,\n    blocks: [\n      section(`:question: *Please sort this reply* from *${r.company}* (${r.fromEmail})\\nAI guess: ${r.category || 'unclear'} (confidence ${r.confidence})\\n>${trunc(r.replyBody, 800).replace(/\\n/g, '\\n>')}`),\n      { type: 'actions', elements: cats.map(([label, id]) => button(label, id, id + '|' + r.replyRecordId)) },\n    ],\n  };\n}\n\nfunction inboundLead(l) {\n  return {\n    text: `New ${l.temperature} inbound lead: ${l.name} (${l.company})`,\n    blocks: [\n      section(`:telephone_receiver: *New ${String(l.temperature).toUpperCase()} inbound lead* – call by ${l.due}\\n*${l.name}* · ${l.company} · ${l.phone || 'no phone'}\\n${l.brief}`),\n      {\n        type: 'actions',\n        elements: [button('Mark called', 'task_called', 'task_called|' + l.taskRecordId, 'primary'), button('Not reached', 'task_not_reached', 'task_not_reached|' + l.taskRecordId)],\n      },\n    ],\n  };\n}\n\nfunction heldOrNoShow(m) {\n  return {\n    text: `Meeting with ${m.company}: held or no-show?`,\n    blocks: [\n      section(`:calendar: Meeting with *${m.company}* started at ${m.start}. Held or no-show?`),\n      { type: 'actions', elements: [button('Held', 'meeting_held', 'meeting_held|' + m.meetingRecordId, 'primary'), button('No-show', 'meeting_noshow', 'meeting_noshow|' + m.meetingRecordId, 'danger')] },\n    ],\n  };\n}\n\n/** Replaces the buttons with \"<Action> by <user> at <time>\". */\nfunction resolvedMessage(original, label, user, when) {\n  const blocks = ((original && original.blocks) || []).filter((b) => b.type !== 'actions');\n  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `:white_check_mark: ${label} by ${user} at ${when}` }] });\n  return { text: `${label} by ${user}`, blocks };\n}\n\nfunction parseActionValue(value) {\n  const [action, recordId] = String(value || '').split('|');\n  return { action, recordId };\n}\n\nconst slackMessagesApi = { campaignReady, interestedApproval, sortReply, inboundLead, heldOrNoShow, resolvedMessage, parseActionValue, section };\nif (typeof module !== 'undefined' && module.exports) module.exports = slackMessagesApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst a = $('Verify + parse').first().json;\nconst label = 'Not reached, rescheduled +2 h';\nconst m = M.slackMessages.resolvedMessage(a.original, label, a.user, a.when);\nreturn [{ json: { ref: a.recordId, update_ts: a.ts, channel: a.channel, text: m.text, blocks: m.blocks } }];\n"
+      }
+    },
+    {
+      "id": "7bebf406-a51a-47a5-836f-41ce91c2874f",
+      "name": "Load meeting",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        540
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Meetings/{{ $('Verify + parse').first().json.recordId }}",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: get Meetings"
+    },
+    {
+      "id": "62695bcd-51e6-4d11-89c6-54e79b9f39ed",
+      "name": "Meeting outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        540
+      ],
+      "parameters": {
+        "jsCode": "const a = $('Verify + parse').first().json;\nconst m = $('Load meeting').first().json;\nconst held = a.action === 'meeting_held';\nconst out = { meeting: { records: [{ id: m.id, fields: { status: held ? 'Held' : 'No-show' } }], typecast: true },\n  lead: { records: [{ id: m.fields.lead_record_id, fields: { status: held ? 'Meeting held' : 'No-show' } }], typecast: true },\n  task: held ? null : { records: [{ fields: { key: 'Call no-show · ' + m.fields.key, lead: [m.fields.lead_record_id], lead_record_id: m.fields.lead_record_id, type: 'Call no-show', due_at: new Date(Date.now() + 3600000).toISOString(), status: 'Open', summary: 'Termin nicht wahrgenommen – bitte anrufen und neu terminieren.' } }], typecast: true } };\nreturn [{ json: out }];\n"
+      }
+    },
+    {
+      "id": "74213d9d-c954-4fb7-8032-66860551431d",
+      "name": "Meeting status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        540
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Meetings",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.meeting) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Meetings (batches of 10)"
+    },
+    {
+      "id": "0d895041-fdd2-4749-8b80-668cac8f80ac",
+      "name": "Lead status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        540
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Meeting outcome').first().json.lead) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Leads (batches of 10)"
+    },
+    {
+      "id": "2078557d-1bb7-4c07-86fd-7db605be111f",
+      "name": "No-show?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        540
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a3957681-8390-4389-8bf8-2b02741461d9",
+              "leftValue": "={{ !!$('Meeting outcome').first().json.task }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "897881e4-107c-4f03-8f59-dd02205084c6",
+      "name": "Call task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        540
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Tasks",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Meeting outcome').first().json.task) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: create Tasks (batches of 10)"
+    },
+    {
+      "id": "b34519f6-0337-44f6-8d21-9b1893de81a0",
+      "name": "CRM stage update",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        540
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.n8nInternalUrl }}/webhook/crm-sync",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ lead_record_id: $('Meeting outcome').first().json.lead.records[0].id }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "notes": "Starts crm-sync right away (the schedule is the fallback)"
+    },
+    {
+      "id": "c4bd8480-5a60-4920-855d-e3135e21976e",
+      "name": "Meeting clicked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        540
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.slackMessages = (function () {\n  const module = { exports: {} };\n/**\n * slackMessages.js – Block Kit messages for #leads. Button values carry\n * \"action|recordId\" so Module 11 knows what to do.\n */\nfunction section(text) {\n  return { type: 'section', text: { type: 'mrkdwn', text: String(text).slice(0, 2900) } };\n}\n\nfunction button(text, actionId, value, style, url) {\n  const b = { type: 'button', text: { type: 'plain_text', text }, action_id: actionId, value: String(value || '') };\n  if (style) b.style = style;\n  if (url) b.url = url;\n  return b;\n}\n\nfunction trunc(s, n) {\n  s = String(s || '');\n  return s.length > n ? s.slice(0, n - 1) + '…' : s;\n}\n\nfunction campaignReady(c) {\n  const samples = (c.samples || []).slice(0, 3);\n  const blocks = [\n    section(`:rocket: *Campaign ready: ${c.name}*` + (c.client ? `\\nFor *${c.client}* · sender ${c.sender || '–'}` : '') + `\\n*${c.leadCount}* leads with approved sequences · average lead score *${c.avgScore}* · average email quality *${c.avgQuality}*` +\n      (c.flagged ? `\\n:warning: ${c.flagged} lead(s) left out (quality below 80 after one rewrite)` : '') +\n      (c.rejected ? `\\n${c.rejected} lead(s) rejected during enrichment` : '')),\n  ];\n  samples.forEach((s, i) => {\n    blocks.push({ type: 'divider' });\n    blocks.push(section(`*Sample ${i + 1}: ${s.company}* (score ${s.score}, quality ${s.quality})\\n*Betreff:* ${s.subject}\\n${trunc(s.body, 600)}`));\n  });\n  blocks.push({\n    type: 'actions',\n    elements: [\n      button('Approve and launch', 'approve_launch', 'approve_launch|' + c.campaignRecordId, 'primary'),\n      ...(c.listUrl ? [button('Open full list', 'open_list', 'open_list|' + c.campaignRecordId, null, c.listUrl)] : []),\n    ],\n  });\n  return { text: `Campaign ready: ${c.name} (${c.leadCount} leads)`, blocks };\n}\n\nfunction interestedApproval(r) {\n  return {\n    text: `${r.kind || 'Interested'} reply from ${r.company} – approve the answer?`,\n    blocks: [\n      section(`:speech_balloon: *${r.kind || 'Interested'} reply* from *${r.company}* (${r.fromEmail}) · confidence ${r.confidence}\\n>${trunc(r.replyBody, 500).replace(/\\n/g, '\\n>')}`),\n      section(`*Suggested answer:*\\n${trunc(r.suggestedReply, 1200)}`),\n      {\n        type: 'actions',\n        elements: [\n          button('Approve and send', 'reply_approve', 'reply_approve|' + r.replyRecordId, 'primary'),\n          button('Edit', 'reply_edit', 'reply_edit|' + r.replyRecordId, null, r.editUrl || undefined),\n          button('Reject', 'reply_reject', 'reply_reject|' + r.replyRecordId, 'danger'),\n        ],\n      },\n    ],\n  };\n}\n\nfunction sortReply(r) {\n  const cats = [['Interested', 'sort_interested'], ['Later', 'sort_later'], ['Not interested', 'sort_not_interested'], ['Unsubscribe', 'sort_unsubscribe']];\n  return {\n    text: `Please sort this reply from ${r.company}`,\n    blocks: [\n      section(`:question: *Please sort this reply* from *${r.company}* (${r.fromEmail})\\nAI guess: ${r.category || 'unclear'} (confidence ${r.confidence})\\n>${trunc(r.replyBody, 800).replace(/\\n/g, '\\n>')}`),\n      { type: 'actions', elements: cats.map(([label, id]) => button(label, id, id + '|' + r.replyRecordId)) },\n    ],\n  };\n}\n\nfunction inboundLead(l) {\n  return {\n    text: `New ${l.temperature} inbound lead: ${l.name} (${l.company})`,\n    blocks: [\n      section(`:telephone_receiver: *New ${String(l.temperature).toUpperCase()} inbound lead* – call by ${l.due}\\n*${l.name}* · ${l.company} · ${l.phone || 'no phone'}\\n${l.brief}`),\n      {\n        type: 'actions',\n        elements: [button('Mark called', 'task_called', 'task_called|' + l.taskRecordId, 'primary'), button('Not reached', 'task_not_reached', 'task_not_reached|' + l.taskRecordId)],\n      },\n    ],\n  };\n}\n\nfunction heldOrNoShow(m) {\n  return {\n    text: `Meeting with ${m.company}: held or no-show?`,\n    blocks: [\n      section(`:calendar: Meeting with *${m.company}* started at ${m.start}. Held or no-show?`),\n      { type: 'actions', elements: [button('Held', 'meeting_held', 'meeting_held|' + m.meetingRecordId, 'primary'), button('No-show', 'meeting_noshow', 'meeting_noshow|' + m.meetingRecordId, 'danger')] },\n    ],\n  };\n}\n\n/** Replaces the buttons with \"<Action> by <user> at <time>\". */\nfunction resolvedMessage(original, label, user, when) {\n  const blocks = ((original && original.blocks) || []).filter((b) => b.type !== 'actions');\n  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `:white_check_mark: ${label} by ${user} at ${when}` }] });\n  return { text: `${label} by ${user}`, blocks };\n}\n\nfunction parseActionValue(value) {\n  const [action, recordId] = String(value || '').split('|');\n  return { action, recordId };\n}\n\nconst slackMessagesApi = { campaignReady, interestedApproval, sortReply, inboundLead, heldOrNoShow, resolvedMessage, parseActionValue, section };\nif (typeof module !== 'undefined' && module.exports) module.exports = slackMessagesApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst a = $('Verify + parse').first().json;\nconst label = a.action === 'meeting_held' ? 'Marked held' : 'Marked no-show';\nconst m = M.slackMessages.resolvedMessage(a.original, label, a.user, a.when);\nreturn [{ json: { ref: a.recordId, update_ts: a.ts, channel: a.channel, text: m.text, blocks: m.blocks } }];\n"
+      }
+    },
+    {
+      "id": "bd670957-f442-4e91-8b4d-6b717a283f77",
+      "name": "Update Slack message",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3840,
+        0
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf15SlackNtfy",
+          "mode": "id",
+          "cachedResultName": "15_slack_notify"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "Slack interactivity": {
+      "main": [
+        [
+          {
+            "node": "Verify + parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify + parse": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action": {
+      "main": [
+        [
+          {
+            "node": "Campaign → Launch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply rejected",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Re-run reply branch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Task done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Task +2 h",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load meeting",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Load meeting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaign → Launch": {
+      "main": [
+        [
+          {
+            "node": "Run launch checks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run launch checks": {
+      "main": [
+        [
+          {
+            "node": "Launch clicked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Launch clicked": {
+      "main": [
+        [
+          {
+            "node": "Update Slack message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load reply": {
+      "main": [
+        [
+          {
+            "node": "Load lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load lead": {
+      "main": [
+        [
+          {
+            "node": "Approved answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved answer": {
+      "main": [
+        [
+          {
+            "node": "Send answer (guarded)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send answer (guarded)": {
+      "main": [
+        [
+          {
+            "node": "Reply approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply approved": {
+      "main": [
+        [
+          {
+            "node": "Approve clicked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approve clicked": {
+      "main": [
+        [
+          {
+            "node": "Update Slack message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply rejected": {
+      "main": [
+        [
+          {
+            "node": "Reject clicked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject clicked": {
+      "main": [
+        [
+          {
+            "node": "Update Slack message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-run reply branch": {
+      "main": [
+        [
+          {
+            "node": "Sort clicked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort clicked": {
+      "main": [
+        [
+          {
+            "node": "Update Slack message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Task done": {
+      "main": [
+        [
+          {
+            "node": "Called clicked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Called clicked": {
+      "main": [
+        [
+          {
+            "node": "Update Slack message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Task +2 h": {
+      "main": [
+        [
+          {
+            "node": "Not reached clicked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Not reached clicked": {
+      "main": [
+        [
+          {
+            "node": "Update Slack message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load meeting": {
+      "main": [
+        [
+          {
+            "node": "Meeting outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meeting outcome": {
+      "main": [
+        [
+          {
+            "node": "Meeting status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meeting status": {
+      "main": [
+        [
+          {
+            "node": "Lead status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead status": {
+      "main": [
+        [
+          {
+            "node": "No-show?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No-show?": {
+      "main": [
+        [
+          {
+            "node": "Call task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CRM stage update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call task": {
+      "main": [
+        [
+          {
+            "node": "CRM stage update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM stage update": {
+      "main": [
+        [
+          {
+            "node": "Meeting clicked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meeting clicked": {
+      "main": [
+        [
+          {
+            "node": "Update Slack message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "NxsWf00ErrorHndl"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "nexsaleFile": "11_slack_actions",
+    "description": "Verifies the Slack signature, runs the action, then edits the message to \"<Action> by <user> at <time>\"."
+  },
+  "pinData": {},
+  "tags": []
+}

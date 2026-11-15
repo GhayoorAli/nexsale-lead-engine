@@ -1,0 +1,8 @@
+{
+  "fixture": "not_interested_01",
+  "expected_category": "Not interested",
+  "expected_branch": "Not interested",
+  "subject": "Re: Unterhaltsreinigung",
+  "body": "Danke, aber wir haben kein Interesse. Wir sind ausgelastet.",
+  "auto_submitted": ""
+}

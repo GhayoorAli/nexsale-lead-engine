@@ -1,0 +1,8 @@
+{
+  "fixture": "unsubscribe_02",
+  "expected_category": "Unsubscribe",
+  "expected_branch": "Unsubscribe",
+  "subject": "Re: Kurze Frage",
+  "body": "Bitte nicht mehr kontaktieren. Löschen Sie meine Daten.",
+  "auto_submitted": ""
+}

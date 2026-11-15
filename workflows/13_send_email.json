@@ -1,0 +1,325 @@
+{
+  "id": "NxsWf13SendEmail",
+  "name": "Nexsale 13 – Send email (guarded)",
+  "active": false,
+  "versionId": "132e089e-badf-4073-89e9-ad7528a3c159",
+  "nodes": [
+    {
+      "id": "f9b52fce-8b42-408c-8111-05f0e9d1efdf",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "4a6e5fd3-1e32-4b06-8fbe-739dd05352b5",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.config = (function () {\n  const module = { exports: {} };\n/**\n * config.js – builds the runtime config for every workflow from environment variables.\n * Used by the first \"Config\" Code node in each workflow. Secrets are NOT copied into\n * the output (execution data is stored in n8n); HTTP nodes read tokens from $env directly.\n */\nfunction bool(v, dflt) {\n  if (v === undefined || v === null || v === '') return dflt;\n  return String(v).trim().toLowerCase() === 'true';\n}\n\nfunction parseList(v) {\n  return String(v || '')\n    .split(/[,;\\s]+/)\n    .map((s) => s.trim().toLowerCase())\n    .filter(Boolean);\n}\n\nfunction parseLimit(v, demoMode) {\n  if (v === undefined || v === null || v === '') return demoMode ? 10 : null;\n  if (String(v).trim().toLowerCase() === 'off') return null;\n  const n = parseInt(v, 10);\n  return Number.isFinite(n) && n > 0 ? n : 10;\n}\n\nfunction trimSlash(u) {\n  return String(u || '').replace(/\\/+$/, '');\n}\n\nfunction buildConfig(env) {\n  env = env || {};\n  // Safe defaults: demo mode ON unless explicitly \"false\".\n  const demoMode = bool(env.DEMO_MODE, true);\n  const mock = bool(env.MOCK_EXTERNAL, false);\n  const mockBase = trimSlash(env.MOCK_BASE_URL || 'http://host.docker.internal:8787');\n  const real = {\n    airtable: 'https://api.airtable.com/v0',\n    googlePlaces: 'https://places.googleapis.com/v1',\n    openai: 'https://api.openai.com/v1',\n    anthropic: 'https://api.anthropic.com/v1',\n    slack: 'https://slack.com/api',\n    gmail: 'https://gmail.googleapis.com/gmail/v1',\n    hubspot: 'https://api.hubapi.com',\n    dns: 'https://dns.google',\n    web: '',\n    calendly: 'https://api.calendly.com',\n  };\n  const mocked = {\n    airtable: mockBase + '/airtable/v0',\n    googlePlaces: mockBase + '/google/v1',\n    openai: mockBase + '/ai/openai/v1',\n    anthropic: mockBase + '/ai/anthropic/v1',\n    slack: mockBase + '/slack/api',\n    gmail: mockBase + '/gmail/v1',\n    hubspot: mockBase + '/hubspot',\n    dns: mockBase + '/dns',\n    web: mockBase + '/web',\n    calendly: mockBase + '/calendly',\n  };\n  const urls = mock ? mocked : real;\n  const aiProvider = String(env.AI_PROVIDER || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : 'openai';\n  const allowlist = parseList(env.TEST_RECIPIENT_ALLOWLIST);\n  const conf = parseFloat(env.AUTO_REPLY_MIN_CONFIDENCE);\n  return {\n    demoMode,\n    mock,\n    allowRealSending: !demoMode && bool(env.ALLOW_REAL_SENDING, false),\n    // DEMO_MODE sends from an every-minute ticker; the test stack turns it off and drives sends by webhook\n    demoTicker: !bool(env.DISABLE_DEMO_TICKER, false),\n    // cap per run so one run always finishes before the next tick (no overlapping runs)\n    maxSendsPerRun: demoMode ? 6 : 5,\n    testLeadLimit: parseLimit(env.TEST_LEAD_LIMIT, demoMode),\n    allowlist,\n    testProspectEmail: String(env.TEST_PROSPECT_EMAIL || '').trim().toLowerCase(),\n    senderEmail: String(env.SENDER_EMAIL || '').trim().toLowerCase(),\n    autoReplyMinConfidence: Number.isFinite(conf) ? conf : 0.85,\n    unsureConfidence: 0.7,\n    timezone: 'Europe/Berlin',\n    airtableBaseId: env.AIRTABLE_BASE_ID || '',\n    airtableUrl: urls.airtable + '/' + (env.AIRTABLE_BASE_ID || ''),\n    googlePlacesUrl: urls.googlePlaces,\n    aiProvider,\n    aiModel: env.AI_MODEL || (aiProvider === 'anthropic' ? 'claude-haiku-5-5' : 'gpt-4o-mini'),\n    aiUrl: aiProvider === 'anthropic' ? urls.anthropic + '/messages' : urls.openai + '/chat/completions',\n    slackApiUrl: urls.slack,\n    slackChannel: env.SLACK_CHANNEL || '#leads',\n    gmailUrl: urls.gmail,\n    hubspotUrl: urls.hubspot,\n    dnsUrl: urls.dns,\n    webProxyUrl: urls.web,\n    calendlyLink: env.CALENDLY_LINK || '',\n    calendlyApiUrl: urls.calendly,\n    n8nBaseUrl: trimSlash(env.WEBHOOK_URL || 'http://localhost:5678'),\n    n8nInternalUrl: trimSlash(env.N8N_INTERNAL_URL || 'http://localhost:5678'),\n    interfaceUrl: env.AIRTABLE_INTERFACE_URL || (env.AIRTABLE_BASE_ID ? 'https://airtable.com/' + env.AIRTABLE_BASE_ID : ''),\n    googleCostPerRequestEur: 0.032,\n  };\n}\n\n/** URL to fetch a company web page; in mock mode served by the mock server. */\nfunction webUrl(cfg, domain, path) {\n  path = path || '/';\n  if (cfg.webProxyUrl) return cfg.webProxyUrl + '/' + domain + path;\n  return 'https://' + domain + path;\n}\n\nconst configApi = { buildConfig, webUrl, parseList, parseLimit };\nif (typeof module !== 'undefined' && module.exports) module.exports = configApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst trigger = $input.all().map((i) => i.json);\n// test stack only: schedules are switched off so tests drive every module through its webhook\nconst scheduled = trigger.length > 0 && trigger[0] && trigger[0]['Readable date'] !== undefined;\nif (scheduled && String($env.DISABLE_SCHEDULES).toLowerCase() === 'true') return [];\nreturn [{ json: { cfg: M.config.buildConfig($env), trigger, startedAt: new Date().toISOString() } }];\n"
+      },
+      "notes": "Builds runtime config from env (no secrets in output)."
+    },
+    {
+      "id": "b18784d4-71fa-4ba5-8908-0b0b2240e0c1",
+      "name": "Load Blocklist",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Blocklist",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Blocklist is checked before every send"
+    },
+    {
+      "id": "0f267da9-775c-4325-8b57-e73ad1aca055",
+      "name": "Guard: allowlist + blocklist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.guard = (function () {\n  const module = { exports: {} };\n/**\n * guard.js – the safety guard that runs right before every email-sending node.\n * - Blocks the run (throws) if any recipient is not on TEST_RECIPIENT_ALLOWLIST.\n * - An empty allowlist blocks everything in test mode.\n * - DEMO_MODE: rewrites To to TEST_PROSPECT_EMAIL, drops Cc/Bcc, prefixes the subject with [TEST].\n * - Real mode (DEMO_MODE=false) additionally needs ALLOW_REAL_SENDING=true, otherwise it blocks.\n */\nclass GuardError extends Error {\n  constructor(message, details) {\n    super(message);\n    this.name = 'GuardError';\n    this.details = details || {};\n  }\n}\n\nfunction norm(e) {\n  return String(e || '').trim().toLowerCase();\n}\n\nfunction splitAddresses(v) {\n  if (!v) return [];\n  const list = Array.isArray(v) ? v : String(v).split(/[,;]/);\n  return list\n    .map((x) => {\n      const m = String(x).match(/<([^>]+)>/);\n      return norm(m ? m[1] : x);\n    })\n    .filter(Boolean);\n}\n\nfunction guardEmail(msg, cfg) {\n  if (!msg || typeof msg !== 'object') throw new GuardError('Guard: no message');\n  if (!cfg || typeof cfg !== 'object') throw new GuardError('Guard: no config');\n  const original = { to: splitAddresses(msg.to), cc: splitAddresses(msg.cc), bcc: splitAddresses(msg.bcc) };\n  if (!original.to.length) throw new GuardError('Guard: message has no recipient');\n  const out = Object.assign({}, msg);\n  if (cfg.demoMode) {\n    if (!cfg.testProspectEmail) throw new GuardError('Guard: DEMO_MODE is on but TEST_PROSPECT_EMAIL is empty');\n    out.to = cfg.testProspectEmail;\n    out.cc = '';\n    out.bcc = '';\n    const subj = String(msg.subject || '');\n    out.subject = /^\\[TEST\\]/.test(subj) ? subj : '[TEST] ' + subj;\n    out.original_to = original.to.join(', ');\n  } else if (!cfg.allowRealSending) {\n    throw new GuardError('Guard: DEMO_MODE is off but ALLOW_REAL_SENDING is not true – blocked', { to: original.to });\n  }\n  const allow = (cfg.allowlist || []).map(norm);\n  const finalRecipients = [].concat(splitAddresses(out.to), splitAddresses(out.cc), splitAddresses(out.bcc));\n  if (cfg.demoMode || allow.length) {\n    if (!allow.length) throw new GuardError('Guard: TEST_RECIPIENT_ALLOWLIST is empty – every send is blocked');\n    const bad = finalRecipients.filter((r) => !allow.includes(r));\n    if (bad.length) throw new GuardError('Guard: recipient not on allowlist: ' + bad.join(', '), { blocked: bad });\n  }\n  out.guard = { passed: true, demoMode: !!cfg.demoMode, recipients: finalRecipients, checkedAt: new Date().toISOString() };\n  return out;\n}\n\n/** Blocklist check: entries are {value} (email or domain) or plain strings. */\nfunction isBlocked(email, blocklist) {\n  const e = norm(email);\n  if (!e) return false;\n  const domain = e.split('@')[1] || '';\n  return (blocklist || []).some((entry) => {\n    const v = norm(typeof entry === 'string' ? entry : entry && (entry.value || entry.email || entry.domain));\n    if (!v) return false;\n    if (v.includes('@')) return v === e;\n    return v === domain || domain.endsWith('.' + v);\n  });\n}\n\nconst guardApi = { GuardError, guardEmail, isBlocked, splitAddresses };\nif (typeof module !== 'undefined' && module.exports) module.exports = guardApi;\n\n  return module.exports;\n})();\n\nM.mime = (function () {\n  const module = { exports: {} };\n/**\n * mime.js – builds the base64url RFC 822 message for the Gmail API messages.send call.\n * Threading: In-Reply-To/References headers plus the Gmail threadId keep steps 2–4 in one thread.\n */\nfunction encodeHeader(v) {\n  const s = String(v || '');\n  // eslint-disable-next-line no-control-regex\n  if (/^[\\x00-\\x7F]*$/.test(s)) return s;\n  return '=?UTF-8?B?' + Buffer.from(s, 'utf8').toString('base64') + '?=';\n}\n\nfunction base64url(buf) {\n  return Buffer.from(buf).toString('base64').replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\n}\n\nfunction wrap76(b64) {\n  return b64.replace(/(.{76})/g, '$1\\r\\n');\n}\n\nfunction buildRawEmail(m) {\n  if (!m || !m.to) throw new Error('buildRawEmail: \"to\" is required');\n  const headers = [\n    'From: ' + (m.fromName ? `${encodeHeader(m.fromName)} <${m.from}>` : m.from || ''),\n    'To: ' + m.to,\n    'Subject: ' + encodeHeader(m.subject || ''),\n    'MIME-Version: 1.0',\n    'Content-Type: text/plain; charset=\"UTF-8\"',\n    'Content-Transfer-Encoding: base64',\n  ];\n  if (m.inReplyTo) {\n    headers.push('In-Reply-To: ' + m.inReplyTo);\n    headers.push('References: ' + (m.references || m.inReplyTo));\n  }\n  if (m.listUnsubscribe) headers.push('List-Unsubscribe: ' + m.listUnsubscribe);\n  const body = wrap76(Buffer.from(String(m.body || ''), 'utf8').toString('base64'));\n  const raw = headers.join('\\r\\n') + '\\r\\n\\r\\n' + body;\n  return base64url(raw);\n}\n\nfunction decodeRawEmail(raw) {\n  const s = Buffer.from(String(raw).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');\n  const [head, ...rest] = s.split('\\r\\n\\r\\n');\n  const headers = {};\n  head.split('\\r\\n').forEach((l) => {\n    const i = l.indexOf(':');\n    if (i > 0) headers[l.slice(0, i).toLowerCase()] = l.slice(i + 1).trim();\n  });\n  const decodeWord = (v) => String(v || '').replace(/=\\?UTF-8\\?B\\?([^?]+)\\?=/g, (m, b) => Buffer.from(b, 'base64').toString('utf8'));\n  return {\n    headers,\n    subject: decodeWord(headers.subject),\n    to: headers.to,\n    body: Buffer.from(rest.join('\\r\\n\\r\\n').replace(/\\r\\n/g, ''), 'base64').toString('utf8'),\n  };\n}\n\nconst mimeApi = { encodeHeader, base64url, buildRawEmail, decodeRawEmail };\nif (typeof module !== 'undefined' && module.exports) module.exports = mimeApi;\n\n  return module.exports;\n})();\n\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst cfg = $('Config').first().json.cfg;\nconst blocklist = M.airtable.fromItems($('Load Blocklist').all()); // throws if the Blocklist could not be read\n// placeholder items from callers without work ({} or {skip:true}) are dropped here\nconst msgs = $('When called').all().map((i) => i.json).filter((m) => m && m.ref && !m.skip);\nconst out = [];\nfor (const m of msgs) {\n  const originals = M.guard.splitAddresses(m.to);\n  const hit = originals.find((a) => M.guard.isBlocked(a, blocklist));\n  if (hit) throw new M.guard.GuardError('Guard: recipient ' + hit + ' is on the Blocklist (ref ' + m.ref + ')');\n  const g = M.guard.guardEmail(m, cfg); // throws -> run stops -> error handler alerts Slack\n  const raw = M.mime.buildRawEmail({ from: cfg.senderEmail, fromName: m.fromName, to: g.to, subject: g.subject, body: m.body, inReplyTo: m.inReplyTo, listUnsubscribe: cfg.senderEmail ? '<mailto:' + cfg.senderEmail + '?subject=STOP>' : '' });\n  const body = { raw };\n  if (m.threadId) body.threadId = m.threadId;\n  out.push({ json: { ref: m.ref, gmail: body, sent_to: g.to, original_to: g.original_to || g.to, subject: g.subject, purpose: m.purpose || 'outreach' } });\n}\nreturn out;\n"
+      },
+      "notes": "SAFETY GUARD: stops the run if any recipient is not on TEST_RECIPIENT_ALLOWLIST; DEMO_MODE rewrites To and adds [TEST]."
+    },
+    {
+      "id": "18cb4fa2-f574-4d17-8c80-8e6f3265eba7",
+      "name": "Mock?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1a10be50-2f4e-489a-88b6-c8d363d4b646",
+              "leftValue": "={{ $('Config').first().json.cfg.mock }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c16d1c66-734e-4380-8aa3-49eae95c2b6b",
+      "name": "Send via mock Gmail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        180
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.gmailUrl }}/users/me/messages/send",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.gmail) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "MOCK_EXTERNAL=true: test inbox in tests/mock_server"
+    },
+    {
+      "id": "661d2c2b-b7f5-473e-82a0-8a5bb6571452",
+      "name": "Send via Gmail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        -180
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "gmailOAuth2",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.gmail) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Gmail sender"
+        }
+      },
+      "notes": "Real Gmail API (OAuth credential set in the n8n UI)"
+    },
+    {
+      "id": "3f7961c3-a1fb-4314-8fe2-735def7c502a",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const guarded = $('Guard: allowlist + blocklist').all();\nreturn $input.all().map((it, i) => ({ json: {\n  ref: guarded[i].json.ref, ok: !!it.json.id, id: it.json.id, threadId: it.json.threadId,\n  sent_to: guarded[i].json.sent_to, original_to: guarded[i].json.original_to, subject: guarded[i].json.subject, sent_at: new Date().toISOString(),\n} }));\n"
+      }
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Load Blocklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Blocklist": {
+      "main": [
+        [
+          {
+            "node": "Guard: allowlist + blocklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard: allowlist + blocklist": {
+      "main": [
+        [
+          {
+            "node": "Mock?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock?": {
+      "main": [
+        [
+          {
+            "node": "Send via mock Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send via Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send via mock Gmail": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send via Gmail": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "NxsWf00ErrorHndl"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "nexsaleFile": "13_send_email",
+    "description": "The ONLY place that sends email. Blocklist + allowlist guard right before the send node."
+  },
+  "pinData": {},
+  "tags": []
+}

@@ -1,0 +1,10 @@
+.env
+.venv/
+node_modules/
+coverage/
+__pycache__/
+.pytest_cache/
+.DS_Store
+tests/.n8n_test_credentials.json
+tests/results/
+n8n_data/

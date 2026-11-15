@@ -1,0 +1,67 @@
+[
+  {
+    "sender_name": "Anna Berger",
+    "client_name": "Real Service GmbH",
+    "industry": "Reinigungsunternehmen",
+    "target_role": "Geschäftsführer",
+    "company_name": "PutzProfis Berlin | Gebäudereinigungsservice",
+    "city": "Berlin",
+    "contact_name": "Luan Rashiti",
+    "contact_role": "Inhaber",
+    "company_summary": "Die PutzProfis Berlin bieten umfassende Gebäudereinigungsleistungen für Büros, Praxen und Gewerbe an. Das Unternehmen ist in verschiedenen Stadtteilen Berlins tätig und legt Wert auf erfahrene Mitarbeiter sowie individuelle Objektbetreuung.",
+    "google_rating": 5,
+    "review_count": 23
+  },
+  {
+    "sender_name": "Anna Berger",
+    "client_name": "Real Service GmbH",
+    "industry": "Reinigungsunternehmen",
+    "target_role": "Geschäftsführer",
+    "company_name": "Reinigungsfirma 𝗣𝘂𝘁𝘇𝗛𝗲𝗹𝗱𝗲𝗻 Berlin | Gebäudereinigungsservice",
+    "city": "Berlin",
+    "contact_name": "Luan Rashiti",
+    "contact_role": "Inhaber",
+    "company_summary": "Die Reinigungsfirma PutzHelden in Berlin bietet umfassende Gebäudereinigungsdienstleistungen wie Unterhaltsreinigung, Büroreinigung und Fensterreinigung an. Ihr Einsatzgebiet erstreckt sich über verschiedene Stadtteile Berlins sowie Teile von Brandenburg, einschließlich Potsdam.",
+    "google_rating": 5,
+    "review_count": 44
+  },
+  {
+    "sender_name": "Anna Berger",
+    "client_name": "Real Service GmbH",
+    "industry": "Reinigungsunternehmen",
+    "target_role": "Geschäftsführer",
+    "company_name": "Jetclean Gebäudereinigungsservice",
+    "city": "Berlin",
+    "contact_name": "Hüseyin Dahan",
+    "contact_role": "Inhaber",
+    "company_summary": "Jetclean Gebäudereinigungsservice bietet professionelle Büroreinigung, Gebäudereinigung und Unterhaltsreinigung in Berlin an. Das familiengeführte Unternehmen bedient Kunden aus verschiedenen Bereichen wie Büros, Gewerbeimmobilien, Arztpraxen und öffentlichen Einrichtungen.",
+    "google_rating": 5,
+    "review_count": 66
+  },
+  {
+    "sender_name": "Anna Berger",
+    "client_name": "Real Service GmbH",
+    "industry": "Reinigungsunternehmen",
+    "target_role": "Geschäftsführer",
+    "company_name": "MiMi Clean 24",
+    "city": "Berlin",
+    "contact_name": "Amjad Hammour",
+    "contact_role": "Inhaber",
+    "company_summary": "MiMi Clean 24 bietet professionelle Reinigungsdienstleistungen in Berlin und Brandenburg an, darunter die Reinigung von Apotheken, Spas und Yoga-Studios. Zu den zufriedenen Kunden zählen unter anderem die Friedrichsberg Apotheke, Inanna Medical Spa und Green Yoga.",
+    "google_rating": 4.9,
+    "review_count": 121
+  },
+  {
+    "sender_name": "Anna Berger",
+    "client_name": "Real Service GmbH",
+    "industry": "Reinigungsunternehmen",
+    "target_role": "Geschäftsführer",
+    "company_name": "Reinigungsfirma Immo-Clean GmbH Berlin | Gebäudereinigungsservice",
+    "city": "Berlin",
+    "contact_name": "Dawid Marczyk",
+    "contact_role": "Geschäftsführer",
+    "company_summary": "Die Reinigungsfirma Immo-Clean GmbH bietet umfassende Gebäudereinigungsdienstleistungen in Berlin an, darunter Büroreinigung, Unterhaltsreinigung und Glasreinigung. Das Unternehmen bedient Kunden in allen 12 Bezirken Berlins sowie in Potsdam und Brandenburg.",
+    "google_rating": 5,
+    "review_count": 151
+  }
+]

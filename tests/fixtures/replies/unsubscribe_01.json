@@ -1,0 +1,8 @@
+{
+  "fixture": "unsubscribe_01",
+  "expected_category": "Unsubscribe",
+  "expected_branch": "Unsubscribe",
+  "subject": "Re: Unterhaltsreinigung",
+  "body": "Bitte nehmen Sie mich aus Ihrem Verteiler und senden Sie mir keine weiteren E-Mails.",
+  "auto_submitted": ""
+}

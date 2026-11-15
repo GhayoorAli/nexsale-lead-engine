@@ -1,0 +1,626 @@
+{
+  "id": "NxsWf07cReminder",
+  "name": "Nexsale 07c – Meeting reminders",
+  "active": false,
+  "versionId": "f0283df7-bffb-460a-8973-eb3e0dc07e84",
+  "nodes": [
+    {
+      "id": "463092b9-005c-4567-88fa-cd5e3139b7fa",
+      "name": "Every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e557e8f8-3b35-4805-8ef5-691c2411491e",
+      "name": "Run now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "reminders-run",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "ac9b6eb6-6fe1-45b1-8b0b-32b5a2cc6a1b"
+    },
+    {
+      "id": "e58e90b8-f58d-437a-83b8-9613b64c7580",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.config = (function () {\n  const module = { exports: {} };\n/**\n * config.js – builds the runtime config for every workflow from environment variables.\n * Used by the first \"Config\" Code node in each workflow. Secrets are NOT copied into\n * the output (execution data is stored in n8n); HTTP nodes read tokens from $env directly.\n */\nfunction bool(v, dflt) {\n  if (v === undefined || v === null || v === '') return dflt;\n  return String(v).trim().toLowerCase() === 'true';\n}\n\nfunction parseList(v) {\n  return String(v || '')\n    .split(/[,;\\s]+/)\n    .map((s) => s.trim().toLowerCase())\n    .filter(Boolean);\n}\n\nfunction parseLimit(v, demoMode) {\n  if (v === undefined || v === null || v === '') return demoMode ? 10 : null;\n  if (String(v).trim().toLowerCase() === 'off') return null;\n  const n = parseInt(v, 10);\n  return Number.isFinite(n) && n > 0 ? n : 10;\n}\n\nfunction trimSlash(u) {\n  return String(u || '').replace(/\\/+$/, '');\n}\n\nfunction buildConfig(env) {\n  env = env || {};\n  // Safe defaults: demo mode ON unless explicitly \"false\".\n  const demoMode = bool(env.DEMO_MODE, true);\n  const mock = bool(env.MOCK_EXTERNAL, false);\n  const mockBase = trimSlash(env.MOCK_BASE_URL || 'http://host.docker.internal:8787');\n  const real = {\n    airtable: 'https://api.airtable.com/v0',\n    googlePlaces: 'https://places.googleapis.com/v1',\n    openai: 'https://api.openai.com/v1',\n    anthropic: 'https://api.anthropic.com/v1',\n    slack: 'https://slack.com/api',\n    gmail: 'https://gmail.googleapis.com/gmail/v1',\n    hubspot: 'https://api.hubapi.com',\n    dns: 'https://dns.google',\n    web: '',\n    calendly: 'https://api.calendly.com',\n  };\n  const mocked = {\n    airtable: mockBase + '/airtable/v0',\n    googlePlaces: mockBase + '/google/v1',\n    openai: mockBase + '/ai/openai/v1',\n    anthropic: mockBase + '/ai/anthropic/v1',\n    slack: mockBase + '/slack/api',\n    gmail: mockBase + '/gmail/v1',\n    hubspot: mockBase + '/hubspot',\n    dns: mockBase + '/dns',\n    web: mockBase + '/web',\n    calendly: mockBase + '/calendly',\n  };\n  const urls = mock ? mocked : real;\n  const aiProvider = String(env.AI_PROVIDER || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : 'openai';\n  const allowlist = parseList(env.TEST_RECIPIENT_ALLOWLIST);\n  const conf = parseFloat(env.AUTO_REPLY_MIN_CONFIDENCE);\n  return {\n    demoMode,\n    mock,\n    allowRealSending: !demoMode && bool(env.ALLOW_REAL_SENDING, false),\n    // DEMO_MODE sends from an every-minute ticker; the test stack turns it off and drives sends by webhook\n    demoTicker: !bool(env.DISABLE_DEMO_TICKER, false),\n    // cap per run so one run always finishes before the next tick (no overlapping runs)\n    maxSendsPerRun: demoMode ? 6 : 5,\n    testLeadLimit: parseLimit(env.TEST_LEAD_LIMIT, demoMode),\n    allowlist,\n    testProspectEmail: String(env.TEST_PROSPECT_EMAIL || '').trim().toLowerCase(),\n    senderEmail: String(env.SENDER_EMAIL || '').trim().toLowerCase(),\n    autoReplyMinConfidence: Number.isFinite(conf) ? conf : 0.85,\n    unsureConfidence: 0.7,\n    timezone: 'Europe/Berlin',\n    airtableBaseId: env.AIRTABLE_BASE_ID || '',\n    airtableUrl: urls.airtable + '/' + (env.AIRTABLE_BASE_ID || ''),\n    googlePlacesUrl: urls.googlePlaces,\n    aiProvider,\n    aiModel: env.AI_MODEL || (aiProvider === 'anthropic' ? 'claude-haiku-5-5' : 'gpt-4o-mini'),\n    aiUrl: aiProvider === 'anthropic' ? urls.anthropic + '/messages' : urls.openai + '/chat/completions',\n    slackApiUrl: urls.slack,\n    slackChannel: env.SLACK_CHANNEL || '#leads',\n    gmailUrl: urls.gmail,\n    hubspotUrl: urls.hubspot,\n    dnsUrl: urls.dns,\n    webProxyUrl: urls.web,\n    calendlyLink: env.CALENDLY_LINK || '',\n    calendlyApiUrl: urls.calendly,\n    n8nBaseUrl: trimSlash(env.WEBHOOK_URL || 'http://localhost:5678'),\n    n8nInternalUrl: trimSlash(env.N8N_INTERNAL_URL || 'http://localhost:5678'),\n    interfaceUrl: env.AIRTABLE_INTERFACE_URL || (env.AIRTABLE_BASE_ID ? 'https://airtable.com/' + env.AIRTABLE_BASE_ID : ''),\n    googleCostPerRequestEur: 0.032,\n  };\n}\n\n/** URL to fetch a company web page; in mock mode served by the mock server. */\nfunction webUrl(cfg, domain, path) {\n  path = path || '/';\n  if (cfg.webProxyUrl) return cfg.webProxyUrl + '/' + domain + path;\n  return 'https://' + domain + path;\n}\n\nconst configApi = { buildConfig, webUrl, parseList, parseLimit };\nif (typeof module !== 'undefined' && module.exports) module.exports = configApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst trigger = $input.all().map((i) => i.json);\n// test stack only: schedules are switched off so tests drive every module through its webhook\nconst scheduled = trigger.length > 0 && trigger[0] && trigger[0]['Readable date'] !== undefined;\nif (scheduled && String($env.DISABLE_SCHEDULES).toLowerCase() === 'true') return [];\nreturn [{ json: { cfg: M.config.buildConfig($env), trigger, startedAt: new Date().toISOString() } }];\n"
+      },
+      "notes": "Builds runtime config from env (no secrets in output)."
+    },
+    {
+      "id": "87056fe2-cd57-4f6e-898b-7e347716ccd8",
+      "name": "Open meetings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Meetings",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"OR({status}='Booked',{status}='Reminded')\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Meetings"
+    },
+    {
+      "id": "08c65d61-391f-4841-830a-68330d656ca8",
+      "name": "Due",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.reminders = (function () {\n  const module = { exports: {} };\n/**\n * reminders.js – Module 7c (hourly): 24 h reminder emails and \"held or no-show?\" checks.\n */\nfunction dueReminders(meetings, now) {\n  const t = new Date(now || Date.now()).getTime();\n  const reminders = [];\n  const heldChecks = [];\n  (meetings || []).forEach((m) => {\n    if (!m.start_time) return;\n    const start = new Date(m.start_time).getTime();\n    if (m.status === 'Booked' && !m.reminder_sent_at && start - t <= 24 * 3600000 && start > t) reminders.push(m);\n    if ((m.status === 'Booked' || m.status === 'Reminded') && !m.held_check_sent_at && t >= start + 15 * 60000) heldChecks.push(m);\n  });\n  return { reminders, heldChecks };\n}\n\nfunction reminderEmail(meeting, lead, client, berlinTime, ve) {\n  const text = `ich freue mich auf unser Gespräch am ${berlinTime}. Falls etwas dazwischenkommt, können Sie den Termin über den Link in der Calendly-Bestätigung verschieben.`;\n  const body = ve\n    ? ve.ensureFrame(text, { contactName: lead.contact_name, contactSalutation: lead.contact_salutation, signature: ve.buildSignature(client || {}) })\n    : `Guten Tag ${lead.contact_name || ''},\\n\\n${text}\\n\\nMit freundlichen Grüßen\\n\\n${(client && client.sender_name) || 'Ihr Nexsale-Team'}`.replace(/Tag \\s*,/, 'Tag,');\n  return { to: lead.email, subject: 'Erinnerung: unser Termin morgen', body, purpose: 'reminder' };\n}\n\nfunction formatBerlin(iso) {\n  return new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', dateStyle: 'full', timeStyle: 'short' }).format(new Date(iso)) + ' Uhr';\n}\n\nconst remindersApi = { dueReminders, reminderEmail, formatBerlin };\nif (typeof module !== 'undefined' && module.exports) module.exports = remindersApi;\n\n  return module.exports;\n})();\n\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst m = M.airtable.fromItems($('Open meetings').all());\nconst r = M.reminders.dueReminders(m, new Date());\nif (!r.reminders.length && !r.heldChecks.length) return [];\nconst ids = Array.from(new Set(r.reminders.concat(r.heldChecks).map((x) => x.lead_record_id)));\nreturn [{ json: { reminders: r.reminders, heldChecks: r.heldChecks, formula: 'OR(' + ids.map((id) => \"RECORD_ID()='\" + id + \"'\").join(',') + ')' } }];\n"
+      }
+    },
+    {
+      "id": "27f7491a-cb4c-4225-8bee-00517100b156",
+      "name": "Meeting leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ $json.formula }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Leads"
+    },
+    {
+      "id": "6e9b8ef4-d6ae-480a-8867-4296a2dcad86",
+      "name": "Clients",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Clients",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Clients"
+    },
+    {
+      "id": "35754104-2b65-4d19-8b0a-bbd406039360",
+      "name": "Reminder emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.reminders = (function () {\n  const module = { exports: {} };\n/**\n * reminders.js – Module 7c (hourly): 24 h reminder emails and \"held or no-show?\" checks.\n */\nfunction dueReminders(meetings, now) {\n  const t = new Date(now || Date.now()).getTime();\n  const reminders = [];\n  const heldChecks = [];\n  (meetings || []).forEach((m) => {\n    if (!m.start_time) return;\n    const start = new Date(m.start_time).getTime();\n    if (m.status === 'Booked' && !m.reminder_sent_at && start - t <= 24 * 3600000 && start > t) reminders.push(m);\n    if ((m.status === 'Booked' || m.status === 'Reminded') && !m.held_check_sent_at && t >= start + 15 * 60000) heldChecks.push(m);\n  });\n  return { reminders, heldChecks };\n}\n\nfunction reminderEmail(meeting, lead, client, berlinTime, ve) {\n  const text = `ich freue mich auf unser Gespräch am ${berlinTime}. Falls etwas dazwischenkommt, können Sie den Termin über den Link in der Calendly-Bestätigung verschieben.`;\n  const body = ve\n    ? ve.ensureFrame(text, { contactName: lead.contact_name, contactSalutation: lead.contact_salutation, signature: ve.buildSignature(client || {}) })\n    : `Guten Tag ${lead.contact_name || ''},\\n\\n${text}\\n\\nMit freundlichen Grüßen\\n\\n${(client && client.sender_name) || 'Ihr Nexsale-Team'}`.replace(/Tag \\s*,/, 'Tag,');\n  return { to: lead.email, subject: 'Erinnerung: unser Termin morgen', body, purpose: 'reminder' };\n}\n\nfunction formatBerlin(iso) {\n  return new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', dateStyle: 'full', timeStyle: 'short' }).format(new Date(iso)) + ' Uhr';\n}\n\nconst remindersApi = { dueReminders, reminderEmail, formatBerlin };\nif (typeof module !== 'undefined' && module.exports) module.exports = remindersApi;\n\n  return module.exports;\n})();\n\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\nM.validateEmails = (function () {\n  const module = { exports: {} };\n/**\n * validateEmails.js – checks an AI-written 4-step sequence before it is stored or sent.\n * Rules (PLAN.md Module 4): 4 steps, message text < 90 words (salutation, signature and footer excluded), formal \"Sie\" only,\n * no placeholders, no exclamation marks, a legal footer on every final email.\n */\nconst MAX_WORDS = 90; // first email: under 90 words (Nexsale blog: max. 90)\nconst MAX_FOLLOWUP_WORDS = 50; // follow-ups: max. 50 words, one new angle (Nexsale blog)\nconst MAX_SUBJECT_WORDS = 5; // subject lines: max. 5 words (Nexsale blog)\nconst INFORMAL_RE = /\\b(du|dich|dir|dein|deine|deinen|deinem|deiner|deines|euch|euer|eure|ihr seid|hast du|kannst du)\\b/i;\nconst PLACEHOLDER_RE = /(\\{\\{|\\}\\}|\\[(?:name|firma|company|vorname|nachname|placeholder)[^\\]]*\\]|<<|>>|\\bXXX\\b|\\bTODO\\b|lorem ipsum)/i;\nconst FOOTER_MARKER = 'Antworten Sie mit STOP';\n// empty phrases a professional first contact never uses (checked in code; live: \"Firmen wie Ihre\", \"Kernkompetenzen\")\nconst FILLER_RE = /\\b(?:Unternehmen|Firmen|Betriebe)\\s+wie\\s+(?:Ihres|Ihrer|Ihrem|Ihren|Ihre|Ihr|Sie)\\b|in Ihrer Branche|zuverlässige[nrs]?\\s+Partner|Kernkompetenz|messbare[n]?\\s+Ergebnisse|\\bumfassende?[nrs]?\\b|exzellent|beeindruckend|revolutionär|Synergie|ich hoffe,? es geht Ihnen gut|Win-win/i;\n\nfunction countWords(text) {\n  return String(text || '')\n    .trim()\n    .split(/\\s+/)\n    .filter((w) => /[\\p{L}\\p{N}]/u.test(w)).length;\n}\n\nfunction hasInformal(text) {\n  // \"Sie\"/\"Ihnen\" are fine. Lowercase \"ihr\" as pronoun is informal; \"Ihr\" (capital) is formal possessive.\n  if (INFORMAL_RE.test(String(text || ''))) return true;\n  return /(^|[.!?]\\s+|\\s)ihr\\s+(habt|seid|könnt|wollt)\\b/.test(String(text || ''));\n}\n\nfunction hasPlaceholder(text) {\n  return PLACEHOLDER_RE.test(String(text || ''));\n}\n\nfunction stripFooter(body, footer) {\n  const b = String(body || '');\n  if (footer && b.includes(footer.trim())) return b.slice(0, b.indexOf(footer.trim())).trim();\n  const i = b.indexOf('\\n-- \\n');\n  return i >= 0 ? b.slice(0, i).trim() : b.trim();\n}\n\nfunction validateEmail(email, opts) {\n  opts = opts || {};\n  const errors = [];\n  if (!email || typeof email !== 'object') return ['email is not an object'];\n  const subject = String(email.subject || '').trim();\n  const body = String(email.body || '');\n  const core = stripFooter(body, opts.footer);\n  const step = email.step;\n  if (!subject) errors.push(`step ${step}: subject missing`);\n  if (subject.length > 80) errors.push(`step ${step}: subject longer than 80 characters`);\n  if (Number(step) === 1 && countWords(subject) > MAX_SUBJECT_WORDS) errors.push(`step 1: subject has ${countWords(subject)} words (max ${MAX_SUBJECT_WORDS})`);\n  if (!core) errors.push(`step ${step}: body missing`);\n  const words = countWords(messageText(core));\n  if (words >= MAX_WORDS) errors.push(`step ${step}: body has ${words} words (max ${MAX_WORDS - 1})`);\n  else if (Number(step) > 1 && words > MAX_FOLLOWUP_WORDS) errors.push(`step ${step}: follow-up has ${words} words (max ${MAX_FOLLOWUP_WORDS})`);\n  if (hasInformal(subject + ' ' + core)) errors.push(`step ${step}: informal \"du\" form`);\n  if (hasPlaceholder(subject + ' ' + body)) errors.push(`step ${step}: leftover placeholder`);\n  if (/!/.test(subject + core)) errors.push(`step ${step}: exclamation mark`);\n  const msg = messageText(core);\n  const filler = msg.match(FILLER_RE);\n  if (filler) errors.push(`step ${step}: filler phrase \"${filler[0]}\"`);\n  // exactly one clear call to action: the last paragraph asks a question\n  const lastPara = msg.split(/\\n\\s*\\n/).filter((x) => x.trim()).slice(-1)[0] || '';\n  if (msg && !lastPara.includes('?')) errors.push(`step ${step}: no question (call to action) in the last paragraph`);\n  // a first email of 40+ words as one block of text is hard to read (live: CLS Clean); short messages may be one paragraph\n  if (Number(step) === 1 && countWords(msg) >= 40 && msg.split(/\\n\\s*\\n/).filter((x) => x.trim()).length < 2) errors.push('step 1: one block of text, needs at least 2 paragraphs');\n  // greeting and sign-off are required (live: the model once dropped both for one lead)\n  if (core && !/^(Guten Tag|Sehr geehrte[rs]?|Hallo|Liebe[rs]?|Dear|Hello)\\b/i.test(core)) errors.push(`step ${step}: greeting missing`);\n  if (core && !/(Viele Grüße|Beste Grüße|Freundliche Grüße|Mit freundlichen Grüßen|Best regards|Kind regards)\\s*,?\\s*\\n?\\s*\\S+/i.test(core.slice(-250))) errors.push(`step ${step}: sign-off missing`);\n  if (opts.senderName && core && !core.slice(-250).includes(opts.senderName)) errors.push(`step ${step}: sender name missing in sign-off`);\n  if (opts.requireFooter) {\n    if (!body.includes(FOOTER_MARKER) || (opts.footer && !body.includes(opts.footer.trim()))) {\n      errors.push(`step ${step}: legal footer missing`);\n    }\n  }\n  return errors;\n}\n\nfunction validateSequence(emails, opts) {\n  opts = opts || {};\n  const errors = [];\n  if (!Array.isArray(emails)) return { ok: false, errors: ['sequence is not an array'] };\n  if (emails.length !== 4) errors.push(`expected 4 emails, got ${emails.length}`);\n  const steps = emails.map((e) => e && Number(e.step)).sort();\n  if (steps.join(',') !== '1,2,3,4') errors.push('steps must be 1,2,3,4');\n  emails.forEach((e) => errors.push(...validateEmail(e, opts)));\n  return { ok: errors.length === 0, errors };\n}\n\n/** Builds the fixed legal footer from a Clients record: company details (Impressum duty for business email),\n *  where the contact data comes from (GDPR Art. 14) and the opt-out. */\nfunction buildFooter(client) {\n  client = client || {};\n  const lines = ['-- ', client.sender_company_footer || client.sender_company || client.name || 'Nexsale GmbH'];\n  lines.push('Ihre geschäftlichen Kontaktdaten stammen aus dem öffentlichen Impressum Ihrer Website.');\n  lines.push('Antworten Sie mit STOP, wenn Sie keine weiteren E-Mails erhalten möchten.');\n  return lines.join('\\n');\n}\n\nfunction appendFooter(body, footer) {\n  const b = String(body || '').trim();\n  if (b.includes(FOOTER_MARKER)) return b;\n  return b + '\\n\\n' + footer;\n}\n\n/** Normalises the AI output: accepts {emails:[...]} or a bare array. */\nfunction normaliseSequence(data) {\n  const list = Array.isArray(data) ? data : data && Array.isArray(data.emails) ? data.emails : null;\n  if (!list) return null;\n  // the model sometimes writes the two characters \"\\n\" instead of a line break (seen live) – fix it in code\n  const unescape = (t) => String(t || '').replace(/\\\\r\\\\n|\\\\n/g, '\\n').replace(/\\\\t/g, ' ').replace(/[ \\t]+\\n/g, '\\n').trim();\n  return list.map((e, i) => ({\n    step: Number(e.step || i + 1),\n    subject: unescape(e.subject).replace(/\\n+/g, ' '),\n    body: unescape(e.body),\n  }));\n}\n\nconst GREETING_RE = /^(Guten Tag|Sehr geehrte[rs]?|Hallo|Liebe[rs]?|Dear|Hello)\\b/i;\nconst SIGNOFF_RE = /(Viele Grüße|Beste Grüße|Freundliche Grüße|Mit freundlichen Grüßen|Best regards|Kind regards)/i;\nconst SIGNOFF = 'Mit freundlichen Grüßen';\nconst ACADEMIC = /^(Dr\\.?|Prof\\.?|Dipl\\.?-?[A-Za-z]*\\.?)$/;\n\nfunction knownName(name) {\n  const n = String(name || '').trim();\n  return n && !/^(unbekannt|unknown|null|-)$/i.test(n) ? n : '';\n}\n\n/**\n * Formal German salutation. Gender is never guessed from a first name: \"Sehr geehrter Herr …\" / \"Sehr geehrte Frau …\"\n * only when the Impressum says Herr/Frau (contactSalutation), otherwise \"Guten Tag Vorname Nachname,\";\n * no contact at all → \"Sehr geehrte Damen und Herren,\".\n */\nfunction salutationLine(opts) {\n  opts = opts || {};\n  const name = knownName(opts.contactName);\n  const sal = String(opts.contactSalutation || '').trim();\n  if (!name) return 'Sehr geehrte Damen und Herren,';\n  const m = sal.match(/^(Herr|Frau)\\b\\s*(.*)$/);\n  if (m) {\n    const parts = name.split(/\\s+/);\n    const titles = (m[2] ? m[2].split(/\\s+/) : []).concat(parts.filter((w) => ACADEMIC.test(w)));\n    const surname = parts.filter((w) => !ACADEMIC.test(w)).slice(-1)[0];\n    const t = Array.from(new Set(titles.filter(Boolean))).join(' ');\n    return (m[1] === 'Herr' ? 'Sehr geehrter Herr ' : 'Sehr geehrte Frau ') + (t ? t + ' ' : '') + surname + ',';\n  }\n  return 'Guten Tag ' + name + ',';\n}\n\n/** Signature block from the Clients record; empty fields are left out. */\nfunction buildSignature(client) {\n  client = client || {};\n  const contact = [client.sender_phone ? 'Tel. ' + client.sender_phone : '', String(client.sender_website || '').replace(/^https?:\\/\\//, '').replace(/\\/$/, '')]\n    .filter(Boolean).join(' · ');\n  return [SIGNOFF, '', client.sender_name || 'Anna Berger', client.sender_title, client.sender_company, contact].filter((x) => x !== undefined && x !== null && (x === '' || String(x).trim())).join('\\n').replace(/\\n+$/, '');\n}\n\n/** What the sender offers, in one sentence (Clients.offer, else a neutral default without numbers or promises). */\nfunction offerText(client, industry) {\n  const o = String((client && client.offer) || '').trim();\n  if (o) return o;\n  const who = String(industry || '').trim() ? 'Unternehmen aus dem Bereich \"' + String(industry).trim() + '\"' : 'Unternehmen';\n  return 'Wir übernehmen für ' + who + ' die Neukundengewinnung: passende Geschäftskunden recherchieren, persönlich per E-Mail ansprechen, '\n    + 'Rückmeldungen vorqualifizieren und Ersttermine direkt in den Kalender legen.';\n}\n\n/** The message text only: without the salutation, the sign-off/signature and the footer. */\nfunction messageText(body) {\n  let b = stripFooter(body).trim();\n  const lines = b.split('\\n');\n  // only a real salutation line (\"Sehr geehrter Herr Oral,\") is removed, never a sentence that starts with \"Guten Tag\"\n  if (lines.length && GREETING_RE.test(lines[0].trim()) && /,$/.test(lines[0].trim()) && lines[0].trim().length <= 80) lines.shift();\n  b = lines.join('\\n').trim();\n  // cut a sign-off only when it starts its own line after the message and only a short signature follows it\n  const re = new RegExp('\\\\n[ \\\\t]*' + SIGNOFF_RE.source, 'gi');\n  let last = null;\n  let m;\n  while ((m = re.exec(b)) !== null) last = m;\n  if (last && b.length - last.index <= 250) b = b.slice(0, last.index).trim();\n  return b;\n}\n\n/**\n * Salutation, sign-off and signature are fixed boilerplate, so code writes them (the same on every email) and the\n * model only writes the message. Live: the model dropped greeting/sign-off in ~3 of 10 sequences.\n */\nfunction ensureFrame(body, opts) {\n  opts = opts || {};\n  const text = messageText(body);\n  if (!text) return '';\n  const signature = opts.signature || buildSignature({ sender_name: opts.senderName });\n  return salutationLine(opts) + '\\n\\n' + text + '\\n\\n' + signature;\n}\n\nconst validateEmailsApi = {\n  MAX_FOLLOWUP_WORDS,\n  MAX_SUBJECT_WORDS,\n  FILLER_RE,\n  ensureFrame,\n  salutationLine,\n  buildSignature,\n  offerText,\n  messageText,\n  MAX_WORDS,\n  FOOTER_MARKER,\n  countWords,\n  hasInformal,\n  hasPlaceholder,\n  validateEmail,\n  validateSequence,\n  buildFooter,\n  appendFooter,\n  normaliseSequence,\n  stripFooter,\n};\nif (typeof module !== 'undefined' && module.exports) module.exports = validateEmailsApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst d = $('Due').first().json;\nconst leads = M.airtable.fromItems($('Meeting leads').all());\nconst client = M.airtable.fromItems($('Clients').all())[0];\nreturn d.reminders.map((m) => {\n  const lead = leads.find((l) => l.id === m.lead_record_id) || {};\n  return { json: Object.assign({ ref: m.id }, M.reminders.reminderEmail(m, lead, client, M.reminders.formatBerlin(m.start_time), M.validateEmails)) };\n}).filter((i) => i.json.to);\n"
+      }
+    },
+    {
+      "id": "f6b321b4-d36c-4520-81d5-306f2d9699c0",
+      "name": "Send reminders (guarded)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf13SendEmail",
+          "mode": "id",
+          "cachedResultName": "13_send_email"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": false
+    },
+    {
+      "id": "06f301a5-d7ef-4172-8cd8-2c4ea21420ae",
+      "name": "Mark reminded",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nreturn M.airtable.updateBatches($('Send reminders (guarded)').all().filter((i) => i.json.ok).map((i) => ({ id: i.json.ref, fields: { status: 'Reminded', reminder_sent_at: new Date().toISOString() } }))).map((b) => ({ json: b }));\n"
+      }
+    },
+    {
+      "id": "92767a2f-544d-4ba4-89df-e8f46f9d78e1",
+      "name": "Save reminded",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        0
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Meetings",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records, typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Meetings (batches of 10)"
+    },
+    {
+      "id": "43a3d014-a559-462b-80d9-62fb79682e36",
+      "name": "Held checks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        360
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.slackMessages = (function () {\n  const module = { exports: {} };\n/**\n * slackMessages.js – Block Kit messages for #leads. Button values carry\n * \"action|recordId\" so Module 11 knows what to do.\n */\nfunction section(text) {\n  return { type: 'section', text: { type: 'mrkdwn', text: String(text).slice(0, 2900) } };\n}\n\nfunction button(text, actionId, value, style, url) {\n  const b = { type: 'button', text: { type: 'plain_text', text }, action_id: actionId, value: String(value || '') };\n  if (style) b.style = style;\n  if (url) b.url = url;\n  return b;\n}\n\nfunction trunc(s, n) {\n  s = String(s || '');\n  return s.length > n ? s.slice(0, n - 1) + '…' : s;\n}\n\nfunction campaignReady(c) {\n  const samples = (c.samples || []).slice(0, 3);\n  const blocks = [\n    section(`:rocket: *Campaign ready: ${c.name}*` + (c.client ? `\\nFor *${c.client}* · sender ${c.sender || '–'}` : '') + `\\n*${c.leadCount}* leads with approved sequences · average lead score *${c.avgScore}* · average email quality *${c.avgQuality}*` +\n      (c.flagged ? `\\n:warning: ${c.flagged} lead(s) left out (quality below 80 after one rewrite)` : '') +\n      (c.rejected ? `\\n${c.rejected} lead(s) rejected during enrichment` : '')),\n  ];\n  samples.forEach((s, i) => {\n    blocks.push({ type: 'divider' });\n    blocks.push(section(`*Sample ${i + 1}: ${s.company}* (score ${s.score}, quality ${s.quality})\\n*Betreff:* ${s.subject}\\n${trunc(s.body, 600)}`));\n  });\n  blocks.push({\n    type: 'actions',\n    elements: [\n      button('Approve and launch', 'approve_launch', 'approve_launch|' + c.campaignRecordId, 'primary'),\n      ...(c.listUrl ? [button('Open full list', 'open_list', 'open_list|' + c.campaignRecordId, null, c.listUrl)] : []),\n    ],\n  });\n  return { text: `Campaign ready: ${c.name} (${c.leadCount} leads)`, blocks };\n}\n\nfunction interestedApproval(r) {\n  return {\n    text: `${r.kind || 'Interested'} reply from ${r.company} – approve the answer?`,\n    blocks: [\n      section(`:speech_balloon: *${r.kind || 'Interested'} reply* from *${r.company}* (${r.fromEmail}) · confidence ${r.confidence}\\n>${trunc(r.replyBody, 500).replace(/\\n/g, '\\n>')}`),\n      section(`*Suggested answer:*\\n${trunc(r.suggestedReply, 1200)}`),\n      {\n        type: 'actions',\n        elements: [\n          button('Approve and send', 'reply_approve', 'reply_approve|' + r.replyRecordId, 'primary'),\n          button('Edit', 'reply_edit', 'reply_edit|' + r.replyRecordId, null, r.editUrl || undefined),\n          button('Reject', 'reply_reject', 'reply_reject|' + r.replyRecordId, 'danger'),\n        ],\n      },\n    ],\n  };\n}\n\nfunction sortReply(r) {\n  const cats = [['Interested', 'sort_interested'], ['Later', 'sort_later'], ['Not interested', 'sort_not_interested'], ['Unsubscribe', 'sort_unsubscribe']];\n  return {\n    text: `Please sort this reply from ${r.company}`,\n    blocks: [\n      section(`:question: *Please sort this reply* from *${r.company}* (${r.fromEmail})\\nAI guess: ${r.category || 'unclear'} (confidence ${r.confidence})\\n>${trunc(r.replyBody, 800).replace(/\\n/g, '\\n>')}`),\n      { type: 'actions', elements: cats.map(([label, id]) => button(label, id, id + '|' + r.replyRecordId)) },\n    ],\n  };\n}\n\nfunction inboundLead(l) {\n  return {\n    text: `New ${l.temperature} inbound lead: ${l.name} (${l.company})`,\n    blocks: [\n      section(`:telephone_receiver: *New ${String(l.temperature).toUpperCase()} inbound lead* – call by ${l.due}\\n*${l.name}* · ${l.company} · ${l.phone || 'no phone'}\\n${l.brief}`),\n      {\n        type: 'actions',\n        elements: [button('Mark called', 'task_called', 'task_called|' + l.taskRecordId, 'primary'), button('Not reached', 'task_not_reached', 'task_not_reached|' + l.taskRecordId)],\n      },\n    ],\n  };\n}\n\nfunction heldOrNoShow(m) {\n  return {\n    text: `Meeting with ${m.company}: held or no-show?`,\n    blocks: [\n      section(`:calendar: Meeting with *${m.company}* started at ${m.start}. Held or no-show?`),\n      { type: 'actions', elements: [button('Held', 'meeting_held', 'meeting_held|' + m.meetingRecordId, 'primary'), button('No-show', 'meeting_noshow', 'meeting_noshow|' + m.meetingRecordId, 'danger')] },\n    ],\n  };\n}\n\n/** Replaces the buttons with \"<Action> by <user> at <time>\". */\nfunction resolvedMessage(original, label, user, when) {\n  const blocks = ((original && original.blocks) || []).filter((b) => b.type !== 'actions');\n  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `:white_check_mark: ${label} by ${user} at ${when}` }] });\n  return { text: `${label} by ${user}`, blocks };\n}\n\nfunction parseActionValue(value) {\n  const [action, recordId] = String(value || '').split('|');\n  return { action, recordId };\n}\n\nconst slackMessagesApi = { campaignReady, interestedApproval, sortReply, inboundLead, heldOrNoShow, resolvedMessage, parseActionValue, section };\nif (typeof module !== 'undefined' && module.exports) module.exports = slackMessagesApi;\n\n  return module.exports;\n})();\n\nM.reminders = (function () {\n  const module = { exports: {} };\n/**\n * reminders.js – Module 7c (hourly): 24 h reminder emails and \"held or no-show?\" checks.\n */\nfunction dueReminders(meetings, now) {\n  const t = new Date(now || Date.now()).getTime();\n  const reminders = [];\n  const heldChecks = [];\n  (meetings || []).forEach((m) => {\n    if (!m.start_time) return;\n    const start = new Date(m.start_time).getTime();\n    if (m.status === 'Booked' && !m.reminder_sent_at && start - t <= 24 * 3600000 && start > t) reminders.push(m);\n    if ((m.status === 'Booked' || m.status === 'Reminded') && !m.held_check_sent_at && t >= start + 15 * 60000) heldChecks.push(m);\n  });\n  return { reminders, heldChecks };\n}\n\nfunction reminderEmail(meeting, lead, client, berlinTime, ve) {\n  const text = `ich freue mich auf unser Gespräch am ${berlinTime}. Falls etwas dazwischenkommt, können Sie den Termin über den Link in der Calendly-Bestätigung verschieben.`;\n  const body = ve\n    ? ve.ensureFrame(text, { contactName: lead.contact_name, contactSalutation: lead.contact_salutation, signature: ve.buildSignature(client || {}) })\n    : `Guten Tag ${lead.contact_name || ''},\\n\\n${text}\\n\\nMit freundlichen Grüßen\\n\\n${(client && client.sender_name) || 'Ihr Nexsale-Team'}`.replace(/Tag \\s*,/, 'Tag,');\n  return { to: lead.email, subject: 'Erinnerung: unser Termin morgen', body, purpose: 'reminder' };\n}\n\nfunction formatBerlin(iso) {\n  return new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', dateStyle: 'full', timeStyle: 'short' }).format(new Date(iso)) + ' Uhr';\n}\n\nconst remindersApi = { dueReminders, reminderEmail, formatBerlin };\nif (typeof module !== 'undefined' && module.exports) module.exports = remindersApi;\n\n  return module.exports;\n})();\n\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst d = $('Due').first().json;\nconst leads = M.airtable.fromItems($('Meeting leads').all());\nreturn d.heldChecks.map((m) => {\n  const lead = leads.find((l) => l.id === m.lead_record_id) || {};\n  const msg = M.slackMessages.heldOrNoShow({ company: lead.company_name || m.invitee_email, start: M.reminders.formatBerlin(m.start_time), meetingRecordId: m.id });\n  return { json: { ref: m.id, text: msg.text, blocks: msg.blocks } };\n});\n"
+      }
+    },
+    {
+      "id": "e2dc60f8-92a1-4ef0-8994-979e57d443d1",
+      "name": "Ask held or no-show",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1440,
+        360
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf15SlackNtfy",
+          "mode": "id",
+          "cachedResultName": "15_slack_notify"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": false
+    },
+    {
+      "id": "49e328ab-198d-4b2e-80e0-95f7db7ce8a2",
+      "name": "Mark asked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        360
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nreturn M.airtable.updateBatches($('Ask held or no-show').all().filter((i) => i.json.ref).map((i) => ({ id: i.json.ref, fields: { held_check_sent_at: new Date().toISOString(), slack_ts: i.json.ts, slack_channel: i.json.channel } }))).map((b) => ({ json: b }));\n"
+      }
+    },
+    {
+      "id": "822fb9cc-1b72-431c-801f-ecd12b605767",
+      "name": "Save asked",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        360
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Meetings",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records, typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Meetings (batches of 10)"
+    }
+  ],
+  "connections": {
+    "Every hour": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Open meetings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open meetings": {
+      "main": [
+        [
+          {
+            "node": "Due",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Due": {
+      "main": [
+        [
+          {
+            "node": "Meeting leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meeting leads": {
+      "main": [
+        [
+          {
+            "node": "Clients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clients": {
+      "main": [
+        [
+          {
+            "node": "Reminder emails",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Held checks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reminder emails": {
+      "main": [
+        [
+          {
+            "node": "Send reminders (guarded)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send reminders (guarded)": {
+      "main": [
+        [
+          {
+            "node": "Mark reminded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark reminded": {
+      "main": [
+        [
+          {
+            "node": "Save reminded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Held checks": {
+      "main": [
+        [
+          {
+            "node": "Ask held or no-show",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask held or no-show": {
+      "main": [
+        [
+          {
+            "node": "Mark asked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark asked": {
+      "main": [
+        [
+          {
+            "node": "Save asked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "NxsWf00ErrorHndl"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "nexsaleFile": "07c_reminders",
+    "description": "Hourly: reminder email 24 h before; 15 min after the start Slack asks \"Held or no-show?\"."
+  },
+  "pinData": {},
+  "tags": []
+}

@@ -1,0 +1,9 @@
+# Test stack: n8n on :5679 with MOCK_EXTERNAL=true, every external API points at
+# tests/mock_server (run on the host at :8787). Start with:
+#   docker compose -p nexsale-test -f docker-compose.yml -f docker-compose.test.yml up -d
+services:
+  n8n:
+    ports: !override
+      - "5679:5678"
+    env_file: !override
+      - ${TEST_ENV_FILE:-tests/test.env}

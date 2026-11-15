@@ -1,0 +1,37 @@
+{
+  "name": "nexsale-lead-engine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Automated B2B outbound pipeline in n8n (demo for Nexsale GmbH)",
+  "scripts": {
+    "test": "jest --coverage --json --outputFile=tests/results/jest.json && node scripts/write_test_report.js",
+    "test:unit": "jest --coverage",
+    "build:workflows": "node scripts/build_workflows.js",
+    "lint:workflows": "node scripts/lint_workflows.js",
+    "scan:secrets": "node scripts/secret_scan.js",
+    "report": "node scripts/write_test_report.js"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "roots": [
+      "<rootDir>/code",
+      "<rootDir>/scripts"
+    ],
+    "collectCoverageFrom": [
+      "code/*.js"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "lines": 80
+      }
+    },
+    "coverageReporters": [
+      "text-summary",
+      "json-summary",
+      "text"
+    ]
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}

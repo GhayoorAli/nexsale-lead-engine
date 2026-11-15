@@ -1,0 +1,8 @@
+{
+  "fixture": "ooo_02",
+  "expected_category": "Out of office",
+  "expected_branch": "Out of office",
+  "subject": "Automatische Antwort: Kurze Frage",
+  "body": "Ich bin im Urlaub und ab dem 2026-12-01 wieder erreichbar.",
+  "auto_submitted": "auto-replied"
+}

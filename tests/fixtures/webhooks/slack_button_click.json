@@ -1,0 +1,30 @@
+{
+  "type": "block_actions",
+  "user": {
+    "id": "U0DEMO",
+    "username": "demo.user",
+    "name": "demo.user"
+  },
+  "channel": {
+    "id": "C0LEADS",
+    "name": "leads"
+  },
+  "message": {
+    "ts": "1763110000.000100",
+    "text": "Campaign ready",
+    "blocks": []
+  },
+  "container": {
+    "type": "message",
+    "message_ts": "1763110000.000100",
+    "channel_id": "C0LEADS"
+  },
+  "response_url": "__MOCK__/slack/response",
+  "actions": [
+    {
+      "action_id": "approve_launch",
+      "value": "approve_launch|__RECORD_ID__",
+      "type": "button"
+    }
+  ]
+}

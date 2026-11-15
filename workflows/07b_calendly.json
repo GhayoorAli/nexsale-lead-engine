@@ -1,0 +1,1219 @@
+{
+  "id": "NxsWf07bCalendly",
+  "name": "Nexsale 07b – Calendly bookings",
+  "active": false,
+  "versionId": "1fa62d49-9466-4c7e-8b5b-ddaa2ba80c75",
+  "nodes": [
+    {
+      "id": "556ba0c4-7fad-4e17-8a0e-c883c56c00c6",
+      "name": "Calendly webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "calendly",
+        "responseMode": "onReceived",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "webhookId": "148329ff-78a1-4a2b-8896-d5b54d1ee7fb"
+    },
+    {
+      "id": "43f8ae1f-546c-4fdf-85f7-d525eab79a97",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.config = (function () {\n  const module = { exports: {} };\n/**\n * config.js – builds the runtime config for every workflow from environment variables.\n * Used by the first \"Config\" Code node in each workflow. Secrets are NOT copied into\n * the output (execution data is stored in n8n); HTTP nodes read tokens from $env directly.\n */\nfunction bool(v, dflt) {\n  if (v === undefined || v === null || v === '') return dflt;\n  return String(v).trim().toLowerCase() === 'true';\n}\n\nfunction parseList(v) {\n  return String(v || '')\n    .split(/[,;\\s]+/)\n    .map((s) => s.trim().toLowerCase())\n    .filter(Boolean);\n}\n\nfunction parseLimit(v, demoMode) {\n  if (v === undefined || v === null || v === '') return demoMode ? 10 : null;\n  if (String(v).trim().toLowerCase() === 'off') return null;\n  const n = parseInt(v, 10);\n  return Number.isFinite(n) && n > 0 ? n : 10;\n}\n\nfunction trimSlash(u) {\n  return String(u || '').replace(/\\/+$/, '');\n}\n\nfunction buildConfig(env) {\n  env = env || {};\n  // Safe defaults: demo mode ON unless explicitly \"false\".\n  const demoMode = bool(env.DEMO_MODE, true);\n  const mock = bool(env.MOCK_EXTERNAL, false);\n  const mockBase = trimSlash(env.MOCK_BASE_URL || 'http://host.docker.internal:8787');\n  const real = {\n    airtable: 'https://api.airtable.com/v0',\n    googlePlaces: 'https://places.googleapis.com/v1',\n    openai: 'https://api.openai.com/v1',\n    anthropic: 'https://api.anthropic.com/v1',\n    slack: 'https://slack.com/api',\n    gmail: 'https://gmail.googleapis.com/gmail/v1',\n    hubspot: 'https://api.hubapi.com',\n    dns: 'https://dns.google',\n    web: '',\n    calendly: 'https://api.calendly.com',\n  };\n  const mocked = {\n    airtable: mockBase + '/airtable/v0',\n    googlePlaces: mockBase + '/google/v1',\n    openai: mockBase + '/ai/openai/v1',\n    anthropic: mockBase + '/ai/anthropic/v1',\n    slack: mockBase + '/slack/api',\n    gmail: mockBase + '/gmail/v1',\n    hubspot: mockBase + '/hubspot',\n    dns: mockBase + '/dns',\n    web: mockBase + '/web',\n    calendly: mockBase + '/calendly',\n  };\n  const urls = mock ? mocked : real;\n  const aiProvider = String(env.AI_PROVIDER || 'openai').toLowerCase() === 'anthropic' ? 'anthropic' : 'openai';\n  const allowlist = parseList(env.TEST_RECIPIENT_ALLOWLIST);\n  const conf = parseFloat(env.AUTO_REPLY_MIN_CONFIDENCE);\n  return {\n    demoMode,\n    mock,\n    allowRealSending: !demoMode && bool(env.ALLOW_REAL_SENDING, false),\n    // DEMO_MODE sends from an every-minute ticker; the test stack turns it off and drives sends by webhook\n    demoTicker: !bool(env.DISABLE_DEMO_TICKER, false),\n    // cap per run so one run always finishes before the next tick (no overlapping runs)\n    maxSendsPerRun: demoMode ? 6 : 5,\n    testLeadLimit: parseLimit(env.TEST_LEAD_LIMIT, demoMode),\n    allowlist,\n    testProspectEmail: String(env.TEST_PROSPECT_EMAIL || '').trim().toLowerCase(),\n    senderEmail: String(env.SENDER_EMAIL || '').trim().toLowerCase(),\n    autoReplyMinConfidence: Number.isFinite(conf) ? conf : 0.85,\n    unsureConfidence: 0.7,\n    timezone: 'Europe/Berlin',\n    airtableBaseId: env.AIRTABLE_BASE_ID || '',\n    airtableUrl: urls.airtable + '/' + (env.AIRTABLE_BASE_ID || ''),\n    googlePlacesUrl: urls.googlePlaces,\n    aiProvider,\n    aiModel: env.AI_MODEL || (aiProvider === 'anthropic' ? 'claude-haiku-5-5' : 'gpt-4o-mini'),\n    aiUrl: aiProvider === 'anthropic' ? urls.anthropic + '/messages' : urls.openai + '/chat/completions',\n    slackApiUrl: urls.slack,\n    slackChannel: env.SLACK_CHANNEL || '#leads',\n    gmailUrl: urls.gmail,\n    hubspotUrl: urls.hubspot,\n    dnsUrl: urls.dns,\n    webProxyUrl: urls.web,\n    calendlyLink: env.CALENDLY_LINK || '',\n    calendlyApiUrl: urls.calendly,\n    n8nBaseUrl: trimSlash(env.WEBHOOK_URL || 'http://localhost:5678'),\n    n8nInternalUrl: trimSlash(env.N8N_INTERNAL_URL || 'http://localhost:5678'),\n    interfaceUrl: env.AIRTABLE_INTERFACE_URL || (env.AIRTABLE_BASE_ID ? 'https://airtable.com/' + env.AIRTABLE_BASE_ID : ''),\n    googleCostPerRequestEur: 0.032,\n  };\n}\n\n/** URL to fetch a company web page; in mock mode served by the mock server. */\nfunction webUrl(cfg, domain, path) {\n  path = path || '/';\n  if (cfg.webProxyUrl) return cfg.webProxyUrl + '/' + domain + path;\n  return 'https://' + domain + path;\n}\n\nconst configApi = { buildConfig, webUrl, parseList, parseLimit };\nif (typeof module !== 'undefined' && module.exports) module.exports = configApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst trigger = $input.all().map((i) => i.json);\n// test stack only: schedules are switched off so tests drive every module through its webhook\nconst scheduled = trigger.length > 0 && trigger[0] && trigger[0]['Readable date'] !== undefined;\nif (scheduled && String($env.DISABLE_SCHEDULES).toLowerCase() === 'true') return [];\nreturn [{ json: { cfg: M.config.buildConfig($env), trigger, startedAt: new Date().toISOString() } }];\n"
+      },
+      "notes": "Builds runtime config from env (no secrets in output)."
+    },
+    {
+      "id": "9408851d-b1c7-4700-8919-c433ee715d8b",
+      "name": "Verify + parse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.calendly = (function () {\n  const module = { exports: {} };\n/**\n * calendly.js – Module 7b: parse Calendly webhook payloads (invitee.created / invitee.canceled).\n * Idempotent: the same event URI twice produces one meeting.\n */\nfunction parseCalendly(body) {\n  const b = (body && (body.body || body)) || {};\n  const p = b.payload || {};\n  const event = b.event || '';\n  const scheduled = p.scheduled_event || {};\n  return {\n    event,\n    email: String(p.email || '').toLowerCase(),\n    name: p.name || '',\n    invitee_uri: p.uri || '',\n    event_uri: scheduled.uri || p.event || '',\n    calendly_event_id: String(scheduled.uri || p.event || p.uri || '').split('/').filter(Boolean).pop() || '',\n    start_time: scheduled.start_time || p.start_time || null,\n    end_time: scheduled.end_time || null,\n    cancel_reason: (p.cancellation && p.cancellation.reason) || '',\n    utm_content: (p.tracking && p.tracking.utm_content) || '',\n    // answers to the booking form's questions (e.g. object size, contract end) go into the meeting brief\n    questions: (Array.isArray(p.questions_and_answers) ? p.questions_and_answers : [])\n      .filter((q) => q && q.question && q.answer).map((q) => ({ question: String(q.question), answer: String(q.answer) })),\n    valid: (event === 'invitee.created' || event === 'invitee.canceled') && !!p.email,\n  };\n}\n\n/** decide what to do given existing Meetings with the same calendly_event_id */\nfunction meetingAction(parsed, existingMeetings) {\n  const existing = (existingMeetings || []).find((m) => m.calendly_event_id === parsed.calendly_event_id);\n  if (parsed.event === 'invitee.created') return existing ? { action: 'skip', reason: 'duplicate webhook', meeting: existing } : { action: 'create' };\n  if (parsed.event === 'invitee.canceled') return existing ? (existing.status === 'Cancelled' ? { action: 'skip', reason: 'already cancelled', meeting: existing } : { action: 'cancel', meeting: existing }) : { action: 'skip', reason: 'unknown meeting' };\n  return { action: 'skip', reason: 'unsupported event ' + parsed.event };\n}\n\n/** Booking link that tells the webhook which lead booked (Calendly passes utm_content back). */\nfunction bookingLink(link, leadRecordId) {\n  if (!link) return '';\n  return link + (link.includes('?') ? '&' : '?') + 'utm_source=nexsale&utm_content=' + encodeURIComponent(leadRecordId || '');\n}\n\n/** Calendly-Webhook-Signature: \"t=<ts>,v1=<hmac_sha256(key, t + '.' + body)>\" */\nfunction verifyCalendlySignature(opts) {\n  const { signingKey, header, rawBody, crypto } = opts || {};\n  const now = opts && opts.now !== undefined ? opts.now : Math.floor(Date.now() / 1000);\n  if (!signingKey) return { ok: true, skipped: true };\n  const parts = Object.fromEntries(String(header || '').split(',').map((kv) => kv.trim().split('=')));\n  if (!parts.t || !parts.v1) return { ok: false, reason: 'missing signature' };\n  if (Math.abs(now - Number(parts.t)) > 180) return { ok: false, reason: 'signature too old' };\n  const expected = crypto.createHmac('sha256', signingKey).update(parts.t + '.' + (rawBody || '')).digest('hex');\n  const a = Buffer.from(expected);\n  const b = Buffer.from(String(parts.v1));\n  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return { ok: false, reason: 'signature mismatch' };\n  return { ok: true };\n}\n\n/**\n * Free Calendly plan (no webhooks): turn polled API data into the same payloads a webhook would send,\n * so 07b_calendly handles both the same way. Only invitees created/changed within `windowMinutes` are\n * forwarded; 07b's duplicate check makes overlapping polls harmless.\n * events: GET /scheduled_events collection; inviteesByEvent: { <event uri>: GET /invitees collection }\n */\nfunction pollToPayloads(events, inviteesByEvent, now, windowMinutes) {\n  const t = new Date(now || Date.now()).getTime();\n  const since = t - (windowMinutes || 30) * 60000;\n  const out = [];\n  (events || []).forEach((ev) => {\n    ((inviteesByEvent || {})[ev.uri] || []).forEach((inv) => {\n      const canceled = inv.status === 'canceled' || ev.status === 'canceled';\n      const changedAt = new Date(canceled ? inv.updated_at || inv.created_at : inv.created_at).getTime();\n      if (!(changedAt >= since)) return;\n      out.push({\n        event: canceled ? 'invitee.canceled' : 'invitee.created',\n        source: 'calendly-poll',\n        payload: {\n          email: inv.email, name: inv.name, uri: inv.uri, status: inv.status, tracking: inv.tracking || {}, questions_and_answers: inv.questions_and_answers || [],\n          cancellation: inv.cancellation || undefined,\n          scheduled_event: { uri: ev.uri, name: ev.name, start_time: ev.start_time, end_time: ev.end_time },\n        },\n      });\n    });\n  });\n  return out;\n}\n\nconst calendlyApi = { parseCalendly, meetingAction, bookingLink, verifyCalendlySignature, pollToPayloads };\nif (typeof module !== 'undefined' && module.exports) module.exports = calendlyApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst crypto = require('crypto');\nconst item = $('Calendly webhook').first();\nlet raw = '';\ntry { raw = (await this.helpers.getBinaryDataBuffer(0, 'data')).toString('utf8'); } catch (e) { raw = ''; }\nconst v = M.calendly.verifyCalendlySignature({ signingKey: $env.CALENDLY_WEBHOOK_SIGNING_KEY, header: item.json.headers['calendly-webhook-signature'], rawBody: raw, crypto });\nif (!v.ok) throw new Error('Calendly signature rejected: ' + v.reason);\nconst p = M.calendly.parseCalendly(item.json.body);\nif (!p.valid) return [];\nreturn [{ json: p }];\n"
+      }
+    },
+    {
+      "id": "0f576ad9-bc21-4316-80d7-6aac0a7ef5e2",
+      "name": "Existing meeting",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Meetings",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{calendly_event_id}='\" + $('Verify + parse').first().json.calendly_event_id + \"'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Meetings"
+    },
+    {
+      "id": "ce12e93b-b7d2-419a-8303-ffb64debf571",
+      "name": "Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ 'OR(' + ($('Verify + parse').first().json.utm_content ? \"RECORD_ID()='\" + $('Verify + parse').first().json.utm_content + \"',\" : '') + \"LOWER({email})='\" + $('Verify + parse').first().json.email + \"')\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Leads"
+    },
+    {
+      "id": "4cd2d94f-899f-4c3e-8a2a-dd844d838a75",
+      "name": "Decide",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.calendly = (function () {\n  const module = { exports: {} };\n/**\n * calendly.js – Module 7b: parse Calendly webhook payloads (invitee.created / invitee.canceled).\n * Idempotent: the same event URI twice produces one meeting.\n */\nfunction parseCalendly(body) {\n  const b = (body && (body.body || body)) || {};\n  const p = b.payload || {};\n  const event = b.event || '';\n  const scheduled = p.scheduled_event || {};\n  return {\n    event,\n    email: String(p.email || '').toLowerCase(),\n    name: p.name || '',\n    invitee_uri: p.uri || '',\n    event_uri: scheduled.uri || p.event || '',\n    calendly_event_id: String(scheduled.uri || p.event || p.uri || '').split('/').filter(Boolean).pop() || '',\n    start_time: scheduled.start_time || p.start_time || null,\n    end_time: scheduled.end_time || null,\n    cancel_reason: (p.cancellation && p.cancellation.reason) || '',\n    utm_content: (p.tracking && p.tracking.utm_content) || '',\n    // answers to the booking form's questions (e.g. object size, contract end) go into the meeting brief\n    questions: (Array.isArray(p.questions_and_answers) ? p.questions_and_answers : [])\n      .filter((q) => q && q.question && q.answer).map((q) => ({ question: String(q.question), answer: String(q.answer) })),\n    valid: (event === 'invitee.created' || event === 'invitee.canceled') && !!p.email,\n  };\n}\n\n/** decide what to do given existing Meetings with the same calendly_event_id */\nfunction meetingAction(parsed, existingMeetings) {\n  const existing = (existingMeetings || []).find((m) => m.calendly_event_id === parsed.calendly_event_id);\n  if (parsed.event === 'invitee.created') return existing ? { action: 'skip', reason: 'duplicate webhook', meeting: existing } : { action: 'create' };\n  if (parsed.event === 'invitee.canceled') return existing ? (existing.status === 'Cancelled' ? { action: 'skip', reason: 'already cancelled', meeting: existing } : { action: 'cancel', meeting: existing }) : { action: 'skip', reason: 'unknown meeting' };\n  return { action: 'skip', reason: 'unsupported event ' + parsed.event };\n}\n\n/** Booking link that tells the webhook which lead booked (Calendly passes utm_content back). */\nfunction bookingLink(link, leadRecordId) {\n  if (!link) return '';\n  return link + (link.includes('?') ? '&' : '?') + 'utm_source=nexsale&utm_content=' + encodeURIComponent(leadRecordId || '');\n}\n\n/** Calendly-Webhook-Signature: \"t=<ts>,v1=<hmac_sha256(key, t + '.' + body)>\" */\nfunction verifyCalendlySignature(opts) {\n  const { signingKey, header, rawBody, crypto } = opts || {};\n  const now = opts && opts.now !== undefined ? opts.now : Math.floor(Date.now() / 1000);\n  if (!signingKey) return { ok: true, skipped: true };\n  const parts = Object.fromEntries(String(header || '').split(',').map((kv) => kv.trim().split('=')));\n  if (!parts.t || !parts.v1) return { ok: false, reason: 'missing signature' };\n  if (Math.abs(now - Number(parts.t)) > 180) return { ok: false, reason: 'signature too old' };\n  const expected = crypto.createHmac('sha256', signingKey).update(parts.t + '.' + (rawBody || '')).digest('hex');\n  const a = Buffer.from(expected);\n  const b = Buffer.from(String(parts.v1));\n  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return { ok: false, reason: 'signature mismatch' };\n  return { ok: true };\n}\n\n/**\n * Free Calendly plan (no webhooks): turn polled API data into the same payloads a webhook would send,\n * so 07b_calendly handles both the same way. Only invitees created/changed within `windowMinutes` are\n * forwarded; 07b's duplicate check makes overlapping polls harmless.\n * events: GET /scheduled_events collection; inviteesByEvent: { <event uri>: GET /invitees collection }\n */\nfunction pollToPayloads(events, inviteesByEvent, now, windowMinutes) {\n  const t = new Date(now || Date.now()).getTime();\n  const since = t - (windowMinutes || 30) * 60000;\n  const out = [];\n  (events || []).forEach((ev) => {\n    ((inviteesByEvent || {})[ev.uri] || []).forEach((inv) => {\n      const canceled = inv.status === 'canceled' || ev.status === 'canceled';\n      const changedAt = new Date(canceled ? inv.updated_at || inv.created_at : inv.created_at).getTime();\n      if (!(changedAt >= since)) return;\n      out.push({\n        event: canceled ? 'invitee.canceled' : 'invitee.created',\n        source: 'calendly-poll',\n        payload: {\n          email: inv.email, name: inv.name, uri: inv.uri, status: inv.status, tracking: inv.tracking || {}, questions_and_answers: inv.questions_and_answers || [],\n          cancellation: inv.cancellation || undefined,\n          scheduled_event: { uri: ev.uri, name: ev.name, start_time: ev.start_time, end_time: ev.end_time },\n        },\n      });\n    });\n  });\n  return out;\n}\n\nconst calendlyApi = { parseCalendly, meetingAction, bookingLink, verifyCalendlySignature, pollToPayloads };\nif (typeof module !== 'undefined' && module.exports) module.exports = calendlyApi;\n\n  return module.exports;\n})();\n\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\nM.reminders = (function () {\n  const module = { exports: {} };\n/**\n * reminders.js – Module 7c (hourly): 24 h reminder emails and \"held or no-show?\" checks.\n */\nfunction dueReminders(meetings, now) {\n  const t = new Date(now || Date.now()).getTime();\n  const reminders = [];\n  const heldChecks = [];\n  (meetings || []).forEach((m) => {\n    if (!m.start_time) return;\n    const start = new Date(m.start_time).getTime();\n    if (m.status === 'Booked' && !m.reminder_sent_at && start - t <= 24 * 3600000 && start > t) reminders.push(m);\n    if ((m.status === 'Booked' || m.status === 'Reminded') && !m.held_check_sent_at && t >= start + 15 * 60000) heldChecks.push(m);\n  });\n  return { reminders, heldChecks };\n}\n\nfunction reminderEmail(meeting, lead, client, berlinTime, ve) {\n  const text = `ich freue mich auf unser Gespräch am ${berlinTime}. Falls etwas dazwischenkommt, können Sie den Termin über den Link in der Calendly-Bestätigung verschieben.`;\n  const body = ve\n    ? ve.ensureFrame(text, { contactName: lead.contact_name, contactSalutation: lead.contact_salutation, signature: ve.buildSignature(client || {}) })\n    : `Guten Tag ${lead.contact_name || ''},\\n\\n${text}\\n\\nMit freundlichen Grüßen\\n\\n${(client && client.sender_name) || 'Ihr Nexsale-Team'}`.replace(/Tag \\s*,/, 'Tag,');\n  return { to: lead.email, subject: 'Erinnerung: unser Termin morgen', body, purpose: 'reminder' };\n}\n\nfunction formatBerlin(iso) {\n  return new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', dateStyle: 'full', timeStyle: 'short' }).format(new Date(iso)) + ' Uhr';\n}\n\nconst remindersApi = { dueReminders, reminderEmail, formatBerlin };\nif (typeof module !== 'undefined' && module.exports) module.exports = remindersApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst p = $('Verify + parse').first().json;\nconst meetings = M.airtable.fromItems($('Existing meeting').all());\nconst leads = M.airtable.fromItems($('Lead').all());\nconst lead = leads.find((l) => l.id === p.utm_content) || leads.find((l) => String(l.email).toLowerCase() === p.email) || null;\nconst a = M.calendly.meetingAction(p, meetings);\nif (a.action === 'create' && !lead) a.action = 'unmatched';\nreturn [{ json: { action: a.action, reason: a.reason || '', p, lead, meeting: a.meeting || null, when: p.start_time ? M.reminders.formatBerlin(p.start_time) : '' } }];\n"
+      }
+    },
+    {
+      "id": "2ff9827d-e521-4900-8662-27cb0613c8bb",
+      "name": "Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c7789d60-3436-4050-8cae-1ba06eaf25b5",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "create",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "create"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "5bfe7282-e090-4afb-8b13-55cd568fd60b",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "cancel",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cancel"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "6112384a-3528-4932-8441-54a1f6730136",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "skip",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "skip"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "bea3f3ba-5420-4de7-8f01-36cf06a4ee60",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "unmatched",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "unmatched"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      }
+    },
+    {
+      "id": "2895e3e0-c2a6-4a8f-8f22-3596973840a9",
+      "name": "Meeting record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        -180
+      ],
+      "parameters": {
+        "jsCode": "const d = $('Decide').first().json;\nreturn [{ json: { records: [{ fields: { key: d.lead.company_name + ' · ' + d.p.start_time, lead: [d.lead.id], lead_record_id: d.lead.id, calendly_event_id: d.p.calendly_event_id,\n  start_time: d.p.start_time, invitee_email: d.p.email, status: 'Booked' } }], typecast: true } }];\n"
+      }
+    },
+    {
+      "id": "aed91e95-e3fc-4a70-87b9-da5c072ce729",
+      "name": "Create meeting",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        -180
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Meetings",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records, typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: create Meetings (batches of 10)"
+    },
+    {
+      "id": "d084c64f-e146-4ee9-851a-d5d3bd420d43",
+      "name": "Lead: Meeting booked",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        -180
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ id: $('Decide').first().json.lead.id, fields: { status: 'Meeting booked' } }], typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Leads (batches of 10)"
+    },
+    {
+      "id": "fd5413f2-aece-4ae7-826d-9bc87c49a224",
+      "name": "Brief replies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        -180
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Replies",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"{lead_record_id}='\" + $('Decide').first().json.lead.id + \"'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Replies"
+    },
+    {
+      "id": "64ba15bb-da2c-4e90-84f3-2c306592fcf4",
+      "name": "Brief client",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        -180
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Clients",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Clients"
+    },
+    {
+      "id": "b49079d9-9d8c-4ef5-8b2e-bc39ff4b85ce",
+      "name": "Brief campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        -180
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Campaigns",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 4,
+              "batchInterval": 1100
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "offset",
+                    "value": "={{ $response.body.offset }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": true,
+              "maxRequests": 10,
+              "requestInterval": 250
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "pageSize",
+              "value": "100"
+            },
+            {
+              "name": "filterByFormula",
+              "value": "={{ \"RECORD_ID()='\" + String($('Decide').first().json.lead.campaign_record_id || '__none__') + \"'\" }}"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "notes": "Airtable: list Campaigns"
+    },
+    {
+      "id": "80df5e78-5ebb-4d21-835c-ffd78b2237f9",
+      "name": "Brief request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        -180
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.brief = (function () {\n  const module = { exports: {} };\n/**\n * brief.js – the meeting brief the client gets when a meeting is booked (Nexsale's \"Goldstandard\": the client only talks\n * to prospects with real need, and knows who, what and why before the call). The AI writes the content from data we have;\n * this module builds its input and formats the result. Without a valid AI answer a factual brief is built from the data.\n */\nfunction threadText(replies) {\n  return (replies || []).filter((r) => r && r.body).sort((a, b) => String(a.received_at).localeCompare(String(b.received_at)))\n    .map((r) => '[' + String(r.received_at || '').slice(0, 10) + ', ' + (r.category || '?') + '] ' + String(r.body).replace(/\\s+/g, ' ').slice(0, 600)).join('\\n');\n}\n\nfunction qaText(questions) {\n  return (questions || []).map((q) => q.question + ': ' + q.answer).join('\\n');\n}\n\n/** vars for prompts/meeting_brief.md */\nfunction briefVars(lead, replies, questions, when, client) {\n  const l = lead || {};\n  return {\n    company_name: l.company_name || '', city: l.city || '', website: l.website || '', contact_name: l.contact_name || '', contact_role: l.contact_role || '',\n    company_summary: l.company_summary || '(keine)', trigger: l.trigger || '(kein Anlass)', google_rating: l.google_rating || '-', review_count: l.review_count || 0,\n    meeting_time: when || '', thread: threadText(replies) || '(keine Antworten gespeichert)', booking_answers: qaText(questions) || '(keine)',\n    offer: (client && client.offer) || '',\n  };\n}\n\nconst list = (xs) => (Array.isArray(xs) ? xs.filter((x) => typeof x === 'string' && x.trim()) : []);\n\n/** Slack/HubSpot text from the AI brief (or a factual fallback from the data) */\nfunction formatBrief(data, lead, when, questions) {\n  const l = lead || {};\n  const d = data && typeof data === 'object' ? data : null;\n  const lines = [];\n  lines.push('*Meeting-Briefing: ' + (l.company_name || '') + '* · ' + (when || ''));\n  lines.push('*Wer:* ' + [l.contact_name, l.contact_role].filter(Boolean).join(', ') + (l.website ? ' · ' + l.website : ''));\n  if (d && d.about) lines.push('*Firma:* ' + d.about); else if (l.company_summary) lines.push('*Firma:* ' + l.company_summary);\n  if (d && d.why_now) lines.push('*Warum jetzt:* ' + d.why_now); else if (l.trigger) lines.push('*Anlass:* ' + l.trigger);\n  if (d && d.conversation) lines.push('*Bisheriger Austausch:* ' + d.conversation);\n  const qa = qaText(questions);\n  if (qa) lines.push('*Angaben bei der Buchung:*\\n' + qa);\n  const open = list(d && d.questions_to_ask).slice(0, 4);\n  if (open.length) lines.push('*Im Gespräch klären:*\\n' + open.map((q) => '• ' + q).join('\\n'));\n  return lines.join('\\n');\n}\n\nconst briefApi = { briefVars, formatBrief, threadText, qaText };\nif (typeof module !== 'undefined' && module.exports) module.exports = briefApi;\n\n  return module.exports;\n})();\n\nM.airtable = (function () {\n  const module = { exports: {} };\n/**\n * airtable.js – helpers for the Airtable REST API: batches of 10, formula building,\n * flattening records. Free-plan friendly (CLAUDE.md: batches of 10 per call).\n */\nconst BATCH = 10;\n\nfunction chunk(list, size) {\n  const n = size || BATCH;\n  const out = [];\n  for (let i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n));\n  return out;\n}\n\nfunction clean(fields) {\n  const out = {};\n  Object.keys(fields || {}).forEach((k) => {\n    if (fields[k] !== undefined) out[k] = fields[k];\n  });\n  return out;\n}\n\n/** -> [{records:[{fields}]}] one item per HTTP call */\nfunction createBatches(fieldsList) {\n  return chunk((fieldsList || []).map((f) => ({ fields: clean(f) }))).map((records) => ({ records, typecast: true }));\n}\n\n/** updates: [{id, fields}] -> [{records:[{id, fields}]}] */\nfunction updateBatches(updates) {\n  return chunk((updates || []).filter((u) => u && u.id).map((u) => ({ id: u.id, fields: clean(u.fields) }))).map((records) => ({ records, typecast: true }));\n}\n\nfunction esc(v) {\n  return String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\");\n}\n\nfunction eq(field, value) {\n  if (typeof value === 'number' || typeof value === 'boolean') return `{${field}}=${value === true ? 'TRUE()' : value === false ? 'FALSE()' : value}`;\n  return `{${field}}='${esc(value)}'`;\n}\n\nfunction and(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `AND(${p.join(',')})`;\n}\n\nfunction or(...parts) {\n  const p = parts.filter(Boolean);\n  return p.length === 1 ? p[0] : `OR(${p.join(',')})`;\n}\n\n/** Airtable record -> flat object with id */\nfunction flat(record) {\n  if (!record) return null;\n  return Object.assign({ id: record.id, createdTime: record.createdTime }, record.fields || {});\n}\n\nfunction flatList(response) {\n  return ((response && response.records) || []).map(flat);\n}\n\n/** n8n items from a (paginated) list node -> flat records */\nfunction fromItems(items) {\n  // With pagination on, n8n's HTTP node retries and then passes the error body on instead of failing.\n  // A failed read must never look like an empty table (e.g. an \"empty\" Blocklist), so fail here.\n  (items || []).forEach((i) => {\n    const e = i && i.json && i.json.error;\n    if (e) throw new Error('Airtable read failed after retries: ' + (typeof e === 'string' ? e : e.message || e.type || JSON.stringify(e)).slice(0, 200));\n  });\n  return flatList({ records: (items || []).flatMap((i) => (i && i.json && i.json.records) || []) });\n}\n\n/** OR() over ids for a text field, e.g. lead_record_id */\nfunction inIds(field, ids) {\n  const list = Array.from(new Set((ids || []).filter(Boolean)));\n  if (!list.length) return \"{\" + field + \"}='__none__'\";\n  return or(...list.map((id) => eq(field, id)));\n}\n\nconst airtableApi = { fromItems, inIds, BATCH, chunk, createBatches, updateBatches, eq, and, or, esc, flat, flatList, clean };\nif (typeof module !== 'undefined' && module.exports) module.exports = airtableApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst d = $('Decide').first().json;\nconst camp = M.airtable.fromItems($('Brief campaign').all())[0] || {};\nconst clients = M.airtable.fromItems($('Brief client').all());\nconst client = clients.find((k) => k.id === camp.client_record_id) || clients.find((k) => k.is_default) || clients[0] || {};\nreturn [{ json: { ref: 'brief', prompt_id: 'meeting_brief', max_tokens: 600, vars: M.brief.briefVars(d.lead, M.airtable.fromItems($('Brief replies').all()), d.p.questions, d.when, client) } }];\n"
+      }
+    },
+    {
+      "id": "9c945900-0a0f-44ef-8b88-1829169632d2",
+      "name": "AI: meeting brief",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3360,
+        -180
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf14AiCall000",
+          "mode": "id",
+          "cachedResultName": "14_ai_call"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "0ea3dc74-fee0-49a0-89c2-ea541c15590d",
+      "name": "Brief",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        -180
+      ],
+      "parameters": {
+        "jsCode": "const M = {};\nM.brief = (function () {\n  const module = { exports: {} };\n/**\n * brief.js – the meeting brief the client gets when a meeting is booked (Nexsale's \"Goldstandard\": the client only talks\n * to prospects with real need, and knows who, what and why before the call). The AI writes the content from data we have;\n * this module builds its input and formats the result. Without a valid AI answer a factual brief is built from the data.\n */\nfunction threadText(replies) {\n  return (replies || []).filter((r) => r && r.body).sort((a, b) => String(a.received_at).localeCompare(String(b.received_at)))\n    .map((r) => '[' + String(r.received_at || '').slice(0, 10) + ', ' + (r.category || '?') + '] ' + String(r.body).replace(/\\s+/g, ' ').slice(0, 600)).join('\\n');\n}\n\nfunction qaText(questions) {\n  return (questions || []).map((q) => q.question + ': ' + q.answer).join('\\n');\n}\n\n/** vars for prompts/meeting_brief.md */\nfunction briefVars(lead, replies, questions, when, client) {\n  const l = lead || {};\n  return {\n    company_name: l.company_name || '', city: l.city || '', website: l.website || '', contact_name: l.contact_name || '', contact_role: l.contact_role || '',\n    company_summary: l.company_summary || '(keine)', trigger: l.trigger || '(kein Anlass)', google_rating: l.google_rating || '-', review_count: l.review_count || 0,\n    meeting_time: when || '', thread: threadText(replies) || '(keine Antworten gespeichert)', booking_answers: qaText(questions) || '(keine)',\n    offer: (client && client.offer) || '',\n  };\n}\n\nconst list = (xs) => (Array.isArray(xs) ? xs.filter((x) => typeof x === 'string' && x.trim()) : []);\n\n/** Slack/HubSpot text from the AI brief (or a factual fallback from the data) */\nfunction formatBrief(data, lead, when, questions) {\n  const l = lead || {};\n  const d = data && typeof data === 'object' ? data : null;\n  const lines = [];\n  lines.push('*Meeting-Briefing: ' + (l.company_name || '') + '* · ' + (when || ''));\n  lines.push('*Wer:* ' + [l.contact_name, l.contact_role].filter(Boolean).join(', ') + (l.website ? ' · ' + l.website : ''));\n  if (d && d.about) lines.push('*Firma:* ' + d.about); else if (l.company_summary) lines.push('*Firma:* ' + l.company_summary);\n  if (d && d.why_now) lines.push('*Warum jetzt:* ' + d.why_now); else if (l.trigger) lines.push('*Anlass:* ' + l.trigger);\n  if (d && d.conversation) lines.push('*Bisheriger Austausch:* ' + d.conversation);\n  const qa = qaText(questions);\n  if (qa) lines.push('*Angaben bei der Buchung:*\\n' + qa);\n  const open = list(d && d.questions_to_ask).slice(0, 4);\n  if (open.length) lines.push('*Im Gespräch klären:*\\n' + open.map((q) => '• ' + q).join('\\n'));\n  return lines.join('\\n');\n}\n\nconst briefApi = { briefVars, formatBrief, threadText, qaText };\nif (typeof module !== 'undefined' && module.exports) module.exports = briefApi;\n\n  return module.exports;\n})();\n\n// ---- node logic ----\nconst d = $('Decide').first().json;\nconst a = $('AI: meeting brief').all().map((i) => i.json).find((x) => x && x.ref === 'brief');\nconst text = M.brief.formatBrief(a && a.ok ? a.data : null, d.lead, d.when, d.p.questions);\nreturn [{ json: { text, ai_ok: !!(a && a.ok), save: { records: [{ id: d.lead.id, fields: { meeting_brief: text.replace(/\\*/g, '') } }], typecast: true } } }];\n"
+      }
+    },
+    {
+      "id": "267f3d7d-e1f4-492e-8645-c6828455f231",
+      "name": "Save brief",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        -180
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Brief').first().json.save) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Leads (batches of 10)"
+    },
+    {
+      "id": "438c4b66-4045-483d-8657-d5a5ebd5af96",
+      "name": "Booked message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        -180
+      ],
+      "parameters": {
+        "jsCode": "const d = $('Decide').first().json;\nreturn [{ json: { ref: d.lead.id, text: ':calendar: Meeting booked with *' + d.lead.company_name + '* (' + (d.lead.contact_name || d.p.name) + ') on ' + d.when + '.\\n\\n' + $('Brief').first().json.text } }];\n"
+      }
+    },
+    {
+      "id": "ccc36e6b-f235-49b9-8550-a78a6625e4de",
+      "name": "Post booked",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4320,
+        -180
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf15SlackNtfy",
+          "mode": "id",
+          "cachedResultName": "15_slack_notify"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "cdd17051-9562-4ed1-8e18-96f25d7f386a",
+      "name": "CRM sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4560,
+        -180
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.cfg.n8nInternalUrl }}/webhook/crm-sync",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "none",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ lead_record_id: $('Decide').first().json.lead.id }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "onError": "continueRegularOutput",
+      "notes": "Starts crm-sync right away (the schedule is the fallback)"
+    },
+    {
+      "id": "675c537e-0e04-45bb-8da5-9bdc43b664fd",
+      "name": "Meeting: Cancelled",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        180
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Meetings",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ id: $('Decide').first().json.meeting.id, fields: { status: 'Cancelled' } }], typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Meetings (batches of 10)"
+    },
+    {
+      "id": "28b68305-9095-43d7-86a5-1ebf7528bdd5",
+      "name": "Lead: back to Interested",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        180
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Config').first().json.cfg.airtableUrl }}/Leads",
+        "options": {
+          "timeout": 30000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 220
+            }
+          }
+        },
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.AIRTABLE_PAT }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: [{ id: $('Decide').first().json.meeting.lead_record_id, fields: { status: 'Interested' } }], typecast: true }) }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Airtable: update Leads (batches of 10)"
+    },
+    {
+      "id": "f6af0e78-1306-435a-81b3-9902a74accca",
+      "name": "Cancelled message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        180
+      ],
+      "parameters": {
+        "jsCode": "const d = $('Decide').first().json;\nreturn [{ json: { ref: d.meeting.id, text: ':x: Meeting cancelled by ' + d.p.email + (d.p.cancel_reason ? ' (' + d.p.cancel_reason + ')' : '') + '.' } }];\n"
+      }
+    },
+    {
+      "id": "da1a4bc1-f10a-4e26-840d-ba8dc6aee80e",
+      "name": "Post cancelled",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2400,
+        180
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf15SlackNtfy",
+          "mode": "id",
+          "cachedResultName": "15_slack_notify"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "5ee1461a-8705-427e-8b36-de68bec01ed0",
+      "name": "Unmatched booking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        540
+      ],
+      "parameters": {
+        "jsCode": "const d = $('Decide').first().json;\nreturn [{ json: { ref: 'calendly', text: ':grey_question: Calendly booking by ' + d.p.email + ' on ' + d.when + ' could not be matched to a lead.' } }];\n"
+      }
+    },
+    {
+      "id": "b75c4680-22ea-404e-8751-0e8c63dae7a8",
+      "name": "Post unmatched",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1920,
+        540
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "NxsWf15SlackNtfy",
+          "mode": "id",
+          "cachedResultName": "15_slack_notify"
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "Calendly webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify + parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify + parse": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Existing meeting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Existing meeting": {
+      "main": [
+        [
+          {
+            "node": "Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead": {
+      "main": [
+        [
+          {
+            "node": "Decide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide": {
+      "main": [
+        [
+          {
+            "node": "Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action": {
+      "main": [
+        [
+          {
+            "node": "Meeting record",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Meeting: Cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [],
+        [
+          {
+            "node": "Unmatched booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meeting record": {
+      "main": [
+        [
+          {
+            "node": "Create meeting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create meeting": {
+      "main": [
+        [
+          {
+            "node": "Lead: Meeting booked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead: Meeting booked": {
+      "main": [
+        [
+          {
+            "node": "Brief replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brief replies": {
+      "main": [
+        [
+          {
+            "node": "Brief client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brief client": {
+      "main": [
+        [
+          {
+            "node": "Brief campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brief campaign": {
+      "main": [
+        [
+          {
+            "node": "Brief request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brief request": {
+      "main": [
+        [
+          {
+            "node": "AI: meeting brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: meeting brief": {
+      "main": [
+        [
+          {
+            "node": "Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brief": {
+      "main": [
+        [
+          {
+            "node": "Save brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save brief": {
+      "main": [
+        [
+          {
+            "node": "Booked message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Booked message": {
+      "main": [
+        [
+          {
+            "node": "Post booked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post booked": {
+      "main": [
+        [
+          {
+            "node": "CRM sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meeting: Cancelled": {
+      "main": [
+        [
+          {
+            "node": "Lead: back to Interested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead: back to Interested": {
+      "main": [
+        [
+          {
+            "node": "Cancelled message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancelled message": {
+      "main": [
+        [
+          {
+            "node": "Post cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unmatched booking": {
+      "main": [
+        [
+          {
+            "node": "Post unmatched",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "NxsWf00ErrorHndl"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "nexsaleFile": "07b_calendly",
+    "description": "invitee.created → Meeting booked; invitee.canceled → Cancelled. The same webhook twice gives one meeting."
+  },
+  "pinData": {},
+  "tags": []
+}

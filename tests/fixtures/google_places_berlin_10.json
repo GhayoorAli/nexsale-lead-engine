@@ -1,0 +1,184 @@
+{
+  "places": [
+    {
+      "id": "ChIJ-demo-0001",
+      "types": [
+        "point_of_interest",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 12345601",
+      "formattedAddress": "Oranienstraße 12, 10999 Berlin, Deutschland",
+      "rating": 4.6,
+      "googleMapsUri": "https://maps.google.com/?cid=0001",
+      "websiteUri": "https://www.glanzwerk-berlin.example/",
+      "userRatingCount": 87,
+      "businessStatus": "OPERATIONAL",
+      "displayName": {
+        "text": "Glanzwerk Gebäudereinigung GmbH",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJ-demo-0002",
+      "types": [
+        "point_of_interest",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 12345602",
+      "formattedAddress": "Warschauer Straße 33, 10243 Berlin, Deutschland",
+      "rating": 4.3,
+      "googleMapsUri": "https://maps.google.com/?cid=0002",
+      "websiteUri": "https://spreeblick-reinigung.example/kontakt?utm_source=gmb",
+      "userRatingCount": 41,
+      "businessStatus": "OPERATIONAL",
+      "displayName": {
+        "text": "Spreeblick Reinigungsservice UG",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJ-demo-0003",
+      "types": [
+        "point_of_interest",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 12345603",
+      "formattedAddress": "Karl-Marx-Straße 101, 12043 Berlin, Deutschland",
+      "rating": 4.8,
+      "googleMapsUri": "https://maps.google.com/?cid=0003",
+      "websiteUri": "https://kiezsauber.example/kontakt?utm_source=gmb",
+      "userRatingCount": 112,
+      "businessStatus": "OPERATIONAL",
+      "displayName": {
+        "text": "Kiezsauber Facility Services GmbH",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJ-demo-0004",
+      "types": [
+        "point_of_interest",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 12345604",
+      "formattedAddress": "Schönhauser Allee 70, 10437 Berlin, Deutschland",
+      "rating": 4.1,
+      "googleMapsUri": "https://maps.google.com/?cid=0004",
+      "websiteUri": "https://blitzblank-buero.example/kontakt?utm_source=gmb",
+      "userRatingCount": 23,
+      "businessStatus": "OPERATIONAL",
+      "displayName": {
+        "text": "Blitzblank Büroreinigung e.K.",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJ-demo-0005",
+      "types": [
+        "point_of_interest",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 12345605",
+      "formattedAddress": "Kurfürstendamm 200, 10719 Berlin, Deutschland",
+      "rating": 3.9,
+      "googleMapsUri": "https://maps.google.com/?cid=0005",
+      "websiteUri": "https://hauptstadt-glas.example/kontakt?utm_source=gmb",
+      "userRatingCount": 15,
+      "businessStatus": "OPERATIONAL",
+      "displayName": {
+        "text": "Hauptstadt Glas- und Gebäudeservice GmbH",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJ-demo-0006",
+      "types": [
+        "point_of_interest",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 12345606",
+      "formattedAddress": "Alt-Moabit 90, 10559 Berlin, Deutschland",
+      "rating": 4.5,
+      "googleMapsUri": "https://maps.google.com/?cid=0006",
+      "websiteUri": "https://www.reinraum-profis.example/",
+      "userRatingCount": 64,
+      "businessStatus": "OPERATIONAL",
+      "displayName": {
+        "text": "Reinraum Profis Berlin GmbH",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJ-demo-0007",
+      "types": [
+        "point_of_interest",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 12345607",
+      "formattedAddress": "Sonnenallee 150, 12059 Berlin, Deutschland",
+      "rating": 4.0,
+      "googleMapsUri": "https://maps.google.com/?cid=0007",
+      "websiteUri": "https://frischwind-reinigung.example/kontakt?utm_source=gmb",
+      "userRatingCount": 9,
+      "businessStatus": "OPERATIONAL",
+      "displayName": {
+        "text": "Frischwind Reinigung GbR",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJ-demo-0008",
+      "types": [
+        "point_of_interest",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 12345608",
+      "formattedAddress": "Frankfurter Allee 55, 10247 Berlin, Deutschland",
+      "rating": 4.7,
+      "googleMapsUri": "https://maps.google.com/?cid=0008",
+      "websiteUri": "https://sauberzauber.example/kontakt?utm_source=gmb",
+      "userRatingCount": 230,
+      "businessStatus": "OPERATIONAL",
+      "displayName": {
+        "text": "Sauberzauber Dienstleistungen GmbH",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJ-demo-0009",
+      "types": [
+        "point_of_interest",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 12345609",
+      "formattedAddress": "Berliner Allee 120, 13088 Berlin, Deutschland",
+      "rating": 3.6,
+      "googleMapsUri": "https://maps.google.com/?cid=0009",
+      "websiteUri": "https://weissensee-clean.example/kontakt?utm_source=gmb",
+      "userRatingCount": 7,
+      "businessStatus": "OPERATIONAL",
+      "displayName": {
+        "text": "Weißensee Clean Team",
+        "languageCode": "de"
+      }
+    },
+    {
+      "id": "ChIJ-demo-0010",
+      "types": [
+        "point_of_interest",
+        "establishment"
+      ],
+      "nationalPhoneNumber": "030 12345610",
+      "formattedAddress": "Kantstraße 44, 10625 Berlin, Deutschland",
+      "rating": 4.2,
+      "googleMapsUri": "https://maps.google.com/?cid=0010",
+      "websiteUri": "https://cb-hausdienst.example/kontakt?utm_source=gmb",
+      "userRatingCount": 31,
+      "businessStatus": "OPERATIONAL",
+      "displayName": {
+        "text": "Charlottenburger Hausmeister- und Reinigungsdienst GmbH",
+        "languageCode": "de"
+      }
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "glanzwerk-berlin.example": {
+    "/": "web/glanzwerk-berlin.example.home.html",
+    "/impressum": "impressum/normal_01.html",
+    "/kontakt": "web/glanzwerk-berlin.example.kontakt.html",
+    "/karriere": "web/glanzwerk-berlin.example.karriere.html"
+  },
+  "spreeblick-reinigung.example": {
+    "/": "web/spreeblick-reinigung.example.home.html",
+    "/impressum": "impressum/normal_02.html"
+  },
+  "kiezsauber.example": {
+    "/": "web/kiezsauber.example.home.html",
+    "/impressum": "impressum/hard_two_directors.html"
+  },
+  "blitzblank-buero.example": {
+    "/": "web/blitzblank-buero.example.home.html",
+    "/impressum": "impressum/normal_03.html"
+  },
+  "hauptstadt-glas.example": {
+    "/": "web/hauptstadt-glas.example.home.html",
+    "/impressum": "impressum/hard_at_email.html"
+  },
+  "reinraum-profis.example": {
+    "/": "web/reinraum-profis.example.home.html",
+    "/rechtliches/anbieter": "impressum/normal_04.html"
+  },
+  "frischwind-reinigung.example": {
+    "/": "web/frischwind-reinigung.example.home.html",
+    "/impressum": "impressum/normal_05.html"
+  },
+  "sauberzauber.example": {
+    "/": "web/sauberzauber.example.home.html",
+    "/impressum": "impressum/normal_06.html"
+  },
+  "weissensee-clean.example": {
+    "/": "web/weissensee-clean.example.home.html"
+  },
+  "cb-hausdienst.example": {
+    "/": "web/cb-hausdienst.example.home.html",
+    "/impressum": "impressum/generic_info_only.html"
+  },
+  "mustermann-gd.example": {
+    "/impressum": "impressum/normal_07.html"
+  },
+  "elbe-reinigung.example": {
+    "/impressum": "impressum/normal_08.html"
+  },
+  "isar-facility.example": {
+    "/impressum": "impressum/normal_09.html"
+  },
+  "rhein-gm.example": {
+    "/impressum": "impressum/normal_10.html"
+  },
+  "donau-reinigung.example": {
+    "/impressum": "impressum/hard_austria.html"
+  },
+  "zuerisee-reinigung.example": {
+    "/impressum": "impressum/hard_switzerland.html"
+  }
+}
