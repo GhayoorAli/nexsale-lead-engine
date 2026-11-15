@@ -271,7 +271,7 @@ describe('slack messages', () => {
     expect(actions.elements[0]).toMatchObject({ action_id: 'approve_launch', value: 'approve_launch|recC', style: 'primary' });
     expect(actions.elements[1].url).toBe('https://airtable.com/x');
     expect(m.blocks.filter((b) => b.type === 'divider')).toHaveLength(3);
-    expect(JSON.stringify(m)).toMatch(/1 lead\(s\) left out/);
+    expect(JSON.stringify(m)).toMatch(/1 lead\(s\) held for review/);
     expect(SM.campaignReady({ name: 'C', campaignRecordId: 'r' }).blocks.find((b) => b.type === 'actions').elements).toHaveLength(1);
   });
   test('interested approval, sort reply, inbound, held/no-show', () => {

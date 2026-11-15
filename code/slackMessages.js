@@ -22,9 +22,11 @@ function campaignReady(c) {
   const samples = (c.samples || []).slice(0, 3);
   const blocks = [
     section(`:rocket: *Campaign ready: ${c.name}*` + (c.client ? `\nFor *${c.client}* · sender ${c.sender || '–'}` : '') + `\n*${c.leadCount}* leads with approved sequences · average lead score *${c.avgScore}* · average email quality *${c.avgQuality}*` +
-      (c.flagged ? `\n:warning: ${c.flagged} lead(s) left out (quality below 80 after one rewrite)` : '') +
+      (c.flagged ? `\n:warning: ${c.flagged} lead(s) held for review (not launched; edit and release them in the Control Center)` : '') +
       (c.rejected ? `\n${c.rejected} lead(s) rejected during enrichment` : '')),
   ];
+  // the campaign does not fit the client (outside its area, or its own industry): say so before anyone clicks launch
+  if ((c.warnings || []).length) blocks.push(section(':rotating_light: *Check before launch:*\n' + c.warnings.map((w) => '• ' + w).join('\n')));
   samples.forEach((s, i) => {
     blocks.push({ type: 'divider' });
     blocks.push(section(`*Sample ${i + 1}: ${s.company}* (score ${s.score}, quality ${s.quality})\n*Betreff:* ${s.subject}\n${trunc(s.body, 600)}`));

@@ -137,3 +137,30 @@ Live tests are blocked on accounts and keys (docs/blockers.md).
   Control Center button **Termin absagen** (`meeting_cancel` via 11_slack_actions). Decision 58.
 - Tests: Jest 439 passed; pytest 14; L2 20/20 scenarios (07w 24 checks incl. a forced Calendly 403, 16 35 checks);
   L3 16/16; L4 2/2 runs with 3 clicks. Live: deployed, token checked (users/me 200). A real cancel needs a test booking.
+
+## Email quality fixes (2026-11-15)
+
+- Live analysis of 18 held leads (of 46). Fixes: exact rewrite feedback computed in code; rule-breaking drafts get the
+  rewrite (draft kept for editing if all fails); better of two versions kept; stricter prompt; numbers count as details,
+  marketing adjectives do not; opening sentence no longer ends at "Mr."/"z. B."; client `service_area` + `industry`
+  warnings (campaignFit.js); a held lead released in a live campaign now gets scheduled. Decision 59.
+- Live re-run of the 18 held leads (copies in "Nachtest" campaigns, never launched): 16 approved (90–95), 2 rightly held
+  (descriptions without any specific fact), drafts kept.
+- Tests: Jest 444; pytest 14; L2 20/20; L3 16/16; L4 2/2 (affected L2 04, 07, 16 re-run after the last changes: pass).
+
+- Fix A (decision 60): opening checked against every real detail; abbreviation list for sentence ends. Re-scoring the
+  recorded live checks: Mr. Cleaner 60/55 → passes; all remaining fails have generic openings. Jest 450, L2 04/16 pass,
+  L3 16/16.
+
+- 07a Gmail inbox fix (decision 61): all mails of one poll handed over. Jest 454 (incl. running the generated 07a code
+  with 3 mails); deployed live and active. A real 2-mails-in-one-minute check is left to a manual test.
+
+- HubSpot race fix (decision 62): saved ids first, 409 → existing id, the 15-minute run skips leads changed in the last
+  3 minutes. Jest 457; L2 10: 15/15 (incl. the live race). Deployed live.
+
+- HubSpot sync safe in every concurrency case (decision 63): event run = own lead only; per-lead lock with read-back
+  and 2-minute expiry; HubSpot's auto-created company reused. L2 10: 33/33. Live: two syncs of a new lead at once →
+  1 contact, 1 company, 1 deal; the losing run stopped without touching HubSpot.
+
+- Send order fix (decision 64): first emails first, longest waiting first; test-mode limit sized to the campaign;
+  10/min in test mode; progress + daily-limit note on the campaign page. Jest 467; L2 05/06/16 pass (06 incl. order).

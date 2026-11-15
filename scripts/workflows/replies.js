@@ -329,12 +329,13 @@ function gmailInbox() {
     pollTimes: { item: [{ mode: 'everyMinute' }] }, simple: false, filters: { q: 'in:inbox -from:me newer_than:2d' }, options: {},
   }, { credentials: { gmailOAuth2: { id: 'REPLACE_WITH_CREDENTIAL_ID', name: 'Gmail sender' } } });
   w.config();
+  // every mail of this poll, one item each (Config collapses the items, so no paired-item lookup across it)
+  w.code('Mails to hand over', ['inbox'], `
+return M.inbox.toReplyPayloads($('New mail in sender inbox').all()).map((p) => ({ json: p }));`);
   w.http('Hand to 07_replies', {
-    method: 'POST', url: `={{ ${CFG('n8nInternalUrl')} }}/webhook/reply-ingest`,
-    body: "{ id: $('New mail in sender inbox').item.json.id, threadId: $('New mail in sender inbox').item.json.threadId, from: $('New mail in sender inbox').item.json.from, to: $('New mail in sender inbox').item.json.to, subject: $('New mail in sender inbox').item.json.subject, text: $('New mail in sender inbox').item.json.text, date: $('New mail in sender inbox').item.json.date, headers: $('New mail in sender inbox').item.json.headers }",
-    batch: { size: 1, interval: 500 },
+    method: 'POST', url: `={{ ${CFG('n8nInternalUrl')} }}/webhook/reply-ingest`, body: '$json', batch: { size: 1, interval: 500 },
   });
-  w.chain('New mail in sender inbox', 'Config', 'Hand to 07_replies');
+  w.chain('New mail in sender inbox', 'Config', 'Mails to hand over', 'Hand to 07_replies');
   return w;
 }
 

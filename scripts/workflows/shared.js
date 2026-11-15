@@ -109,7 +109,7 @@ return $input.all().map((it, i) => {
   const parsed = M.parseAiJson.parseAiJson(text);
   if (parsed.ok) parsed.data = M.validators.prepareByPrompt(req.prompt_id, parsed.data, req.validate_opts, M.validateEmails);
   const v = parsed.ok ? M.validators.validateByPrompt(req.prompt_id, parsed.data, req.validate_opts, M.validateEmails) : { ok: false, errors: [parsed.error] };
-  if (parsed.ok && v.ok && req.prompt_id === 'quality_check') parsed.data.score = M.validators.qualityScore(parsed.data, { summary: (req.vars || {}).company_summary, sequence: (req.vars || {}).sequence, generic: [(req.vars || {}).industry, (req.vars || {}).city] }); // computed + quote verified, not the model's guess
+  if (parsed.ok && v.ok && req.prompt_id === 'quality_check') parsed.data.score = M.validators.qualityScore(parsed.data, { summary: (req.vars || {}).company_summary, sequence: (req.vars || {}).sequence, generic: [(req.vars || {}).industry, (req.vars || {}).city], details: (req.vars || {}).details }); // computed + verified in code, not the model's guess
   const usage = M.parseAiJson.extractUsage(it.json);
   return { json: Object.assign({}, req, { ok: v.ok, data: parsed.ok ? parsed.data : null, errors: v.errors, raw: String(text).slice(0, 8000),
     cost_eur: (req.cost_eur || 0) + M.aiRequest.estimateCostEur(cfg.aiModel, usage), attempts: (req.attempts || 0) + 1 }) };
@@ -118,14 +118,17 @@ return $input.all().map((it, i) => {
   w.code('Parse + validate', mods, parseCode('Build request'));
   w.ifTrue('Valid?', '$json.ok');
   w.at(5, 1);
-  w.code('Build retry', ['aiRequest'], `
+  w.code('Build retry', ['aiRequest', 'validators'], `
 const cfg = $('Config').first().json.cfg;
 return $input.all().map((it) => {
   const j = it.json;
   // give the model its own previous answer and ask for a targeted fix (live: rewriting from scratch made new mistakes)
   const prev = j.raw ? '\\n\\nDeine letzte Antwort:\\n' + j.raw : '';
-  const user = j.user + prev + '\\n\\nDiese Antwort war ungültig: ' + (j.errors || []).join('; ') + '. Behalte alles andere bei und ändere nur die genannten Stellen. Antworte erneut, ausschließlich mit gültigem JSON im geforderten Format.';
-  return { json: Object.assign({}, j, { user, request: M.aiRequest.buildAiRequest({ provider: cfg.aiProvider, model: cfg.aiModel, system: j.system, user, temperature: j.temperature }) }) };
+  // exact fix instructions per error (live: the bare error list was often ignored – "Synergie" came back)
+  const fixes = M.validators.fixHints(j.errors || []);
+  const user = j.user + prev + '\\n\\nDiese Antwort war ungültig. Behebe genau diese Punkte:\\n' + fixes.map((x) => '- ' + x).join('\\n') + '\\nBehalte alles andere bei und ändere nur die genannten Stellen. Antworte erneut, ausschließlich mit gültigem JSON im geforderten Format.';
+  const maxTokens = (j.request && (j.request.max_tokens || j.request.max_completion_tokens)) || undefined;
+  return { json: Object.assign({}, j, { user, request: M.aiRequest.buildAiRequest({ provider: cfg.aiProvider, model: cfg.aiModel, system: j.system, user, maxTokens, temperature: j.temperature }) }) };
 });`);
   aiHttp('AI retry');
   w.code('Parse retry', mods, parseCode('Build retry'));

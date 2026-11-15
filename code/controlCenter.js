@@ -156,6 +156,25 @@ function campaignStats(c, d) {
   };
 }
 
+/**
+ * Sending progress of a running campaign: first emails sent / due, follow-ups, and why sending paused (daily limit),
+ * so a skip is never invisible (live: a lead waited unnoticed while the daily limit had stopped the campaign).
+ */
+function sendProgress(c, d, now, demoMode) {
+  const S = dep('sending', './sending');
+  const leads = (d.leads || []).filter((l) => leadCamp(l) === c.id && ['Approved', 'Contacted'].includes(l.status));
+  const ids = new Set(leads.map((l) => l.id));
+  const emails = (d.emails || []).filter((e) => ids.has(leadOf(e)));
+  const firstSent = new Set(emails.filter((e) => Number(e.step) === 1 && e.status === 'Sent').map(leadOf));
+  const withSequence = new Set(emails.map(leadOf));
+  const day = (t) => new Date(new Date(t).getTime() + 3600000).toISOString().slice(0, 10); // ~Berlin day, display only
+  const allCampaignEmails = (d.emails || []).filter((e) => (e.campaign_record_id || '') === c.id || ids.has(leadOf(e)));
+  const sentToday = allCampaignEmails.filter((e) => e.status === 'Sent' && e.sent_at && day(e.sent_at) === day(now)).length;
+  const limit = S.dailyLimit(c, new Set(allCampaignEmails.map(leadOf)).size, demoMode);
+  return { firstSent: firstSent.size, firstTotal: withSequence.size, followUps: emails.filter((e) => Number(e.step) > 1 && e.status === 'Sent').length,
+    sentToday, limit, limitReached: sentToday >= limit };
+}
+
 function pageOverview(o) {
   const d = o.data;
   const D = dep('dashboard', './dashboard');
@@ -183,12 +202,18 @@ function pageOverview(o) {
   <h2>Kennzahlen (alle Kampagnen)</h2><div class="grid">${kpi('Positive Antworten', t.positive_replies)}${kpi('Termine', t.meetings_booked)}${kpi('Antwortquote', t.reply_rate_pct + ' %')}${kpi('E-Mails gesendet', t.emails_sent)}</div>`);
 }
 
+/** Warnings when a campaign does not fit its client (outside the service area, or the client's own industry). */
+function fitWarnings(c, client) {
+  return dep('campaignFit', './campaignFit').campaignFit(c, client);
+}
+
 function pageCampaigns(o) {
   const d = o.data;
   const clients = Object.fromEntries((d.clients || []).map((c) => [c.id, c]));
   const rows = (d.campaigns || []).slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))).map((c) => {
     const s = campaignStats(c, d);
-    return `<tr><td><a href="${href('campaign', { id: c.id })}"><b>${esc(c.name)}</b></a><br><small>${esc((clients[campClient(c)] || {}).name || '')} · ${esc(c.industry || '')}, ${esc(c.city || '')} · ${berlin(c.created_at, false)}</small></td>
+    const warn = fitWarnings(c, clients[campClient(c)]);
+    return `<tr><td><a href="${href('campaign', { id: c.id })}"><b>${esc(c.name)}</b></a>${warn.length ? ` <span class="badge bad" title="${esc(warn.join(' '))}">passt nicht zum Client</span>` : ''}<br><small>${esc((clients[campClient(c)] || {}).name || '')} · ${esc(c.industry || '')}, ${esc(c.city || '')} · ${berlin(c.created_at, false)}</small></td>
       <td>${badge(c.status)}</td><td>${s.approved}/${s.leads}</td><td>${s.sent}</td><td>${s.replies}</td><td>${s.positive}</td><td>${s.meetings}</td><td>${campaignButtons(c, 'campaigns')}</td></tr>`;
   }).join('') || '<tr><td colspan="8">Noch keine Kampagnen. <a href="' + href('new-campaign') + '">Erste Kampagne anlegen</a></td></tr>';
   return layout(o, 'Kampagnen', `<div class="actions"><a class="btn primary" href="${href('new-campaign')}">+ Neue Kampagne</a></div>
@@ -208,7 +233,8 @@ function pageCampaign(o) {
     <td><small>${esc(l.reject_reason || l.needs_review_reason || (l.trigger ? 'Anlass: ' + l.trigger : ''))}</small></td></tr>`).join('') || '<tr><td colspan="7">Noch keine Leads – die Suche läuft.</td></tr>';
   const status = `<a href="/webhook/campaign-status?id=${esc(c.id)}">Live-Status ↗</a>`;
   return layout(o, c.name, `<div class="card"><div class="row"><div>${badge(c.status)} <b>${esc(client.name || '')}</b> · Absender ${esc(client.sender_name || '–')} · ${esc(c.industry || '')} in ${esc(c.city || '')} · Zielrolle ${esc(c.target_role || '')} · Max. ${esc(c.max_leads || '')} Leads</div><div>${status}</div></div>
-    ${c.launch_failures ? `<div class="flash bad">Start blockiert: ${esc(c.launch_failures)}</div>` : ''}<div class="actions">${campaignButtons(c, 'campaign')}${['Sourcing', 'Ready'].includes(c.status) && s.leads ? ' ' + postButton('campaign_rewrite', { id: c.id }, 'Alle E-Mails neu schreiben', '', 'Alle noch nicht gesendeten E-Mails dieser Kampagne verwerfen und neu schreiben lassen (z. B. nach geändertem Angebot oder Schreibhinweisen)?') : ''}</div></div>
+    ${['Live', 'Paused'].includes(c.status) ? (() => { const p = sendProgress(c, d, o.now, (o.cfg || {}).demoMode); return `<div class="flash good">Versand: Erst-E-Mails <b>${p.firstSent} von ${p.firstTotal}</b> gesendet${p.firstSent < p.firstTotal ? ' – alle Erst-E-Mails gehen vor jedem Follow-up raus' : ''} · Follow-ups gesendet: ${p.followUps} · heute ${p.sentToday} von ${p.limit}</div>${p.limitReached && c.status === 'Live' ? `<div class="flash bad">Tageslimit erreicht (${p.limit} E-Mails) – der Versand geht morgen ab 08:00 weiter.</div>` : ''}`; })() : ''}
+    ${c.launch_failures ? `<div class="flash bad">Start blockiert: ${esc(c.launch_failures)}</div>` : ''}${fitWarnings(c, client).map((x) => `<div class="flash bad">Achtung: ${esc(x)}</div>`).join('')}<div class="actions">${campaignButtons(c, 'campaign')}${['Sourcing', 'Ready'].includes(c.status) && s.leads ? ' ' + postButton('campaign_rewrite', { id: c.id }, 'Alle E-Mails neu schreiben', '', 'Alle noch nicht gesendeten E-Mails dieser Kampagne verwerfen und neu schreiben lassen (z. B. nach geändertem Angebot oder Schreibhinweisen)?') : ''}</div></div>
     <div class="grid">${kpi('Leads', s.leads)}${kpi('Freigegeben', s.approved)}${kpi('Zur Prüfung', s.review)}${kpi('Aussortiert', s.rejected)}${kpi('Gesendet', s.sent)}${kpi('Positive Antworten', s.positive)}${kpi('Termine', s.meetings)}${kpi('Kosten', ((Number(c.google_api_cost_eur) || 0) + (Number(c.ai_cost_eur) || 0)).toFixed(4).replace('.', ',') + ' €')}</div>
     <h2>Leads</h2><div class="tw"><table><tr><th>Firma</th><th>Ansprechpartner</th><th>E-Mail</th><th>Score</th><th>Qualität</th><th>Status</th><th>Grund / Anlass</th></tr>${rows}</table></div>`);
 }
@@ -302,6 +328,8 @@ const CLIENT_FIELDS = [
   ['qualifying_questions', 'Qualifizierungsfragen', 'werden Interessenten in der Antwort gestellt', 'textarea'],
   ['calendly_link', 'Buchungslink (Calendly)', 'leer = Link aus .env', 'url'],
   ['target_segments', 'Zielgruppen (Notiz)', 'z. B. Hausverwaltungen, Hotels', 'text'],
+  ['industry', 'Eigene Branche', 'damit keine Wettbewerber angeschrieben werden, z. B. Gebäudereinigung', 'text'],
+  ['service_area', 'Einsatzgebiet', 'Städte oder Regionen mit Komma, z. B. Berlin, Potsdam; leer oder "bundesweit" = überall', 'text'],
   ['target_positive_replies', 'Garantie: positive Antworten / Monat', '', 'number'],
   ['target_meetings', 'Garantie: Termine / Monat', '', 'number'],
 ];
@@ -336,6 +364,7 @@ function pageNewCampaign(o) {
   return layout(o, 'Neue Kampagne', `<form method="post" action="/webhook/app-action" class="card"><input type="hidden" name="action" value="campaign_create">
     <label>Kampagnenname *</label><input type="text" name="name" required placeholder="Hausverwaltungen Berlin – Real Service">
     <label>Client * <small>in wessen Namen geschrieben wird</small></label><select name="client">${opts}</select>
+    <p class="muted">${(d.clients || []).map((k) => `<b>${esc(k.name)}</b>: ${esc(k.service_area || 'bundesweit')}${k.industry ? ' · eigene Branche ' + esc(k.industry) : ''}`).join(' &nbsp;·&nbsp; ')}</p>
     <label>Branche (Suchbegriff) * <small>wie bei Google Maps, z. B. Hausverwaltung, Steuerberater</small></label><input type="text" name="industry" required>
     <label>Stadt *</label><input type="text" name="city" required>
     <label>Unternehmensgröße</label><select name="company_size"><option>1-9</option><option selected>10-49</option><option>50-249</option><option>250+</option></select>
@@ -427,7 +456,9 @@ function planAction(form, d, ctx) {
     if (!client) return fail('Unbekannter Client "' + (c.client || '') + '"', 'new-campaign');
     const fields = { name: c.name, client: [client.id], client_record_id: client.id, industry: c.industry, city: c.city, company_size: c.company_size, target_role: c.target_role,
       max_leads: c.max_leads, status: 'Sourcing', daily_limit: 40, created_at: (ctx && ctx.now) || new Date().toISOString(), google_api_requests: 0, google_api_cost_eur: 0, ai_cost_eur: 0 };
-    return { ops: [at('POST', 'Campaigns', { records: [{ fields }], typecast: true })], after: 'campaign_created', redirect: back('campaigns', {}, 'Kampagne angelegt.') };
+    const warn = fitWarnings(c, client);
+    return { ops: [at('POST', 'Campaigns', { records: [{ fields }], typecast: true })], after: 'campaign_created', warnings: warn,
+      redirect: warn.length ? back('campaigns', {}, 'Kampagne angelegt. Achtung: ' + warn.join(' '), true) : back('campaigns', {}, 'Kampagne angelegt.') };
   }
 
   if (/^campaign_(launch|pause|resume|stop)$/.test(a)) {
@@ -481,13 +512,16 @@ function planAction(form, d, ctx) {
         redirect: back('lead', { id: l.id }, 'E-Mail ' + e0.step + ' gespeichert (Regeln geprüft).') };
     }
     if (l.status !== 'Needs review') return fail('Nur zurückgehaltene Leads können freigegeben werden', 'lead', { id: l.id });
+    const running = ['Live', 'Paused'].includes(c.status);
     const es = (data.emails || []).filter((e) => leadOf(e) === l.id && e.status !== 'Sent').sort((x, y) => Number(x.step) - Number(y.step));
     if (es.length !== 4) return fail('Für die Freigabe braucht der Lead 4 E-Mails', 'lead', { id: l.id });
     const v = VE.validateSequence(es.map((e) => ({ step: Number(e.step), subject: e.subject, body: e.body })), opts);
     if (!v.ok) return fail('Noch nicht freigegeben – bitte zuerst anpassen: ' + v.errors.join('; '), 'lead', { id: l.id });
     return { ops: [at('PATCH', 'Emails', { records: es.map((e) => ({ id: e.id, fields: { status: 'Approved', approved: true, approved_by: user } })), typecast: true }),
-      at('PATCH', 'Leads', { records: [{ id: l.id, fields: { status: 'Approved', needs_review_reason: null } }], typecast: true })],
-    redirect: back('lead', { id: l.id }, 'Lead freigegeben – er ist beim Start der Kampagne dabei.') };
+      at('PATCH', 'Leads', { records: [{ id: l.id, fields: Object.assign({ status: 'Approved', needs_review_reason: null },
+        // the campaign already runs: schedule email 1 now (sending keeps business hours and pace), otherwise it would never go out
+        running ? { sequence_step: 1, next_send_at: (ctx && ctx.now) || new Date().toISOString(), subject_variant: 'A' } : {}) }], typecast: true })],
+    redirect: back('lead', { id: l.id }, running ? 'Lead freigegeben – E-Mail 1 geht mit dem nächsten Versand raus.' : 'Lead freigegeben – er ist beim Start der Kampagne dabei.') };
   }
 
   if (a === 'campaign_rewrite') {
@@ -557,5 +591,5 @@ function afterAction(plan, results) {
   return { ops: [], redirect: plan.redirect };
 }
 
-const controlCenterApi = { checkAuth, renderPage, planAction, afterAction, pendingApproval, toSort, heldOpen, cancellable, campaignStats, esc, CLIENT_FIELDS, PAGES };
+const controlCenterApi = { checkAuth, renderPage, planAction, afterAction, pendingApproval, toSort, heldOpen, cancellable, campaignStats, sendProgress, esc, CLIENT_FIELDS, PAGES };
 if (typeof module !== 'undefined' && module.exports) module.exports = controlCenterApi;

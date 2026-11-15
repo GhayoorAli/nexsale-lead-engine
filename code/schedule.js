@@ -71,11 +71,11 @@ function sendAtForStep(firstSentAt, step, opts) {
   return nextSendSlot(target, opts);
 }
 
-/** Wait between two sends: 60–180 s real, 2–5 s demo, 0 when mocked. */
+/** Wait between two sends: 60–180 s real, 1 s demo (test inbox only), 0 when mocked. */
 function randomDelaySeconds(opts, rand) {
   const r = typeof rand === 'number' ? rand : Math.random();
   if (opts && opts.mock) return 0;
-  if (opts && opts.demoMode) return 2 + Math.round(r * 3);
+  if (opts && opts.demoMode) return 1;
   return 60 + Math.round(r * 120);
 }
 

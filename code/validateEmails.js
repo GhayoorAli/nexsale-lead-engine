@@ -192,7 +192,7 @@ function formatParagraphs(text) {
   // a sentence ends at . ? ! followed by a space and a capital letter or quote ("7.000" or "z. B." never split)
   const sentences = t.split(/(?<=[.!?])\s+(?=[A-ZÄÖÜ„"])/).reduce((acc, piece) => {
     // "z. B.", "ca.", "Nr.", "Dr." end with a short word + period: not a sentence end → glue the next piece back on
-    if (acc.length && /(^|\s)[A-Za-zÄÖÜäöüß]{1,3}\.$/.test(acc[acc.length - 1])) acc[acc.length - 1] += ' ' + piece;
+    if (acc.length && /(^|\s)([A-Za-zÄÖÜäöüß]|Mr|Mrs|Ms|Dr|Prof|Dipl|Ing|Nr|ca|bzw|usw|inkl|ggf|evtl|vgl|Str|St|Hr|Fr|Tel|etc|ff|Mio|Mrd|Jh|gem|zzgl|max|min)\.$/.test(acc[acc.length - 1])) acc[acc.length - 1] += ' ' + piece;
     else acc.push(piece);
     return acc;
   }, []);

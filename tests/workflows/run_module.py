@@ -352,6 +352,31 @@ def t04_ai_emails(stack, mock):
     l = mock.table("Leads")[0]
     c.ok(l["status"] == "Needs review" and "below 80 after one rewrite" in l.get("needs_review_reason", ""), "quality < 80 → rewritten once → still < 80 → flagged", l.get("needs_review_reason"))
     c.ok(sum(1 for a in mock.state()["ai_calls"] if a["prompt_id"] == "email_sequence") == 2, "exactly one rewrite")
+    rw = [a for a in mock.state()["ai_calls"] if a["prompt_id"] == "email_sequence"][-1]["user_tail"]
+    c.ok("Die vorige Version wurde abgelehnt" in rw and "erste Satz von E-Mail 1" in rw and "seit 20 Jahren" in rw and "Floskeln" in rw,
+         "the rewrite gets exact feedback computed in code (opening, invented claim, filler)", rw[-600:])
+    # a readable draft that breaks a rule twice (write + retry) → rewritten with exact fix instructions → Approved
+    mock.reset()
+    camp = seed_campaign(mock, leads_sourced=1)
+    seed_leads(mock, camp["id"], n=1, status="Enriched")
+    mock.ai_mode("filler", "email_sequence", count=2)
+    run(stack, lambda: stack.webhook("ai-emails-run", {}), expect=["04_ai_emails"], timeout=90)
+    calls = [a for a in mock.state()["ai_calls"] if a["prompt_id"] == "email_sequence"]
+    l = mock.table("Leads")[0]
+    c.ok(len(calls) == 3 and "Behebe genau diese Punkte" in calls[1]["user_tail"] and "Synergien besprechen" in calls[1]["user_tail"], "retry names the exact fix", [x["user_tail"][-300:] for x in calls[1:2]])
+    c.ok("Die vorige Version wurde abgelehnt" in calls[2]["user_tail"] and "Synergie" in calls[2]["user_tail"], "still broken after the retry → one rewrite with the fix instructions")
+    c.ok(l["status"] == "Approved" and len(mock.table("Emails")) == 4, "the rewrite passes → lead Approved with 4 emails", (l["status"], l.get("needs_review_reason")))
+    # broken in every attempt → Needs review, but the draft is kept so a person can fix it in the Control Center
+    mock.reset()
+    camp = seed_campaign(mock, leads_sourced=1)
+    seed_leads(mock, camp["id"], n=1, status="Enriched")
+    mock.ai_mode("filler", "email_sequence", count=4)
+    run(stack, lambda: stack.webhook("ai-emails-run", {}), expect=["04_ai_emails"], timeout=90)
+    l = mock.table("Leads")[0]
+    E = mock.table("Emails")
+    c.ok(l["status"] == "Needs review" and "broke a rule after the rewrite" in l.get("needs_review_reason", "") and "Synergie" in l.get("needs_review_reason", ""),
+         "rule broken in every attempt → Needs review with the reason", l.get("needs_review_reason"))
+    c.ok(len(E) == 4 and all(e["status"] == "Draft" and not e.get("approved") for e in E) and all("-- " in e["body"] for e in E), "the draft is kept (4 unapproved emails with footer) for editing", [(e["status"], e.get("approved")) for e in E])
     return c
 
 
@@ -428,6 +453,21 @@ def t06_sending(stack, mock):
     # blocklisted lead is skipped
     mock_patch(mock, "Leads", leads[1]["id"], {"status": "Contacted"})
     all_success(c, {k: v for k, v in st.items() if k in ("06_sending", "13_send_email")}, ["06_sending", "13_send_email"])
+    # send order (live bug): a follow-up due for longer must still wait until every due first email is out
+    mock.reset()
+    camp = seed_campaign(mock, status="Live")
+    fu = seed_leads(mock, camp["id"], n=1, status="Contacted", sequence_step=2, next_send_at=iso(now() - timedelta(minutes=30)), subject_variant="A", first_sent_at=iso(now() - timedelta(minutes=33)))
+    firsts = seed_leads(mock, camp["id"], n=3, sequence_step=1, next_send_at=iso(now() - timedelta(minutes=1)), subject_variant="A")
+    # distinct names/addresses for the follow-up lead
+    mock_patch(mock, "Leads", fu[0]["id"], {"company_name": "Folgefirma GmbH", "email": "f@folgefirma.example", "domain": "folgefirma.example"})
+    fu[0]["fields"]["company_name"] = "Folgefirma GmbH"
+    seed_emails(mock, fu + firsts)
+    e1 = next(e for e in mock.table("Emails") if e["lead_record_id"] == fu[0]["id"] and e["step"] == 1)
+    mock_patch(mock, "Emails", e1["id"], {"status": "Sent", "sent_at": iso(now() - timedelta(minutes=33)), "thread_id": "thr-fu"})
+    run(stack, lambda: stack.webhook("sending-run", {}), expect=["06_sending"], timeout=120)
+    order = [g["subject"] for g in mock.state()["gmail"]]
+    c.ok(len(order) == 4 and all(x.startswith("Betreff 1 für Testfirma") for x in order[:3]) and order[3] == "Re: Betreff 1 für Folgefirma GmbH",
+         "all 3 due first emails are sent before the follow-up that was due 30 minutes earlier", order)
     return c
 
 
@@ -879,6 +919,88 @@ def t10_crm(stack, mock):
     hs = mock.state()["hubspot"]
     c.ok(len(hs["contacts"]) == 1 and len(hs["companies"]) == 1 and len(hs["deals"]) == 1, "re-running creates no duplicates", {k: len(v) for k, v in hs.items() if isinstance(v, dict)})
     c.ok(list(hs["deals"].values())[0]["properties"]["dealstage"] == "qualifiedtobuy", "Meeting held updates the deal stage")
+    all_success(c, {k: v for k, v in st.items() if k == "10_crm_sync"}, ["10_crm_sync"])
+    # race (live): another run created the contact a moment ago, HubSpot's search does not show it yet → 409 → existing id
+    import requests as rq
+    mock.reset()
+    camp, lead, em = seed_contacted_lead(mock)
+    mock_patch(mock, "Leads", lead["id"], {"status": "Interested"})
+    lead_email = next(x for x in mock.table("Leads") if x["id"] == lead["id"])["email"]
+    rq.post(mock.base + "/_control/hubspot_seed", json={"type": "contacts", "id": "925138341073", "unindexed": True, "properties": {"email": lead_email, "firstname": "Other run"}}, timeout=5)
+    _, ex, st = run(stack, lambda: stack.webhook("crm-sync", {"lead_record_id": lead["id"]}), expect=["10_crm_sync"])
+    hs = mock.state()["hubspot"]
+    l = next(x for x in mock.table("Leads") if x["id"] == lead["id"])
+    c.ok(len(hs["contacts"]) == 1 and l.get("hubspot_contact_id") == "925138341073" and l.get("crm_synced_status") == "Interested",
+         "contact exists but is not searchable yet → 409 → the existing contact is used, no duplicate, run completes", (len(hs["contacts"]), l.get("hubspot_contact_id")))
+    c.ok(["contact", "925138341073", "company", list(hs["companies"])[0]] in hs["associations"], "the existing contact is linked to the company")
+    all_success(c, {k: v for k, v in st.items() if k == "10_crm_sync"}, ["10_crm_sync"])
+    # ids saved in Airtable are used directly (no search): nothing new is created even if search shows nothing
+    mock.reset()
+    camp, lead, em = seed_contacted_lead(mock)
+    for t, i in (("contacts", "501"), ("companies", "502"), ("deals", "503")):
+        rq.post(mock.base + "/_control/hubspot_seed", json={"type": t, "id": i, "unindexed": True, "properties": {"dealname": "x"} if t == "deals" else {}}, timeout=5)
+    mock_patch(mock, "Leads", lead["id"], {"status": "Meeting held", "hubspot_contact_id": "501", "hubspot_company_id": "502", "hubspot_deal_id": "503", "crm_synced_status": "Interested"})
+    _, ex, st = run(stack, lambda: stack.webhook("crm-sync", {"lead_record_id": lead["id"]}), expect=["10_crm_sync"])
+    hs = mock.state()["hubspot"]
+    c.ok({k: len(v) for k, v in hs.items() if k in ("contacts", "companies", "deals")} == {"contacts": 1, "companies": 1, "deals": 1} and hs["deals"]["503"]["properties"].get("dealstage") == "qualifiedtobuy",
+         "saved HubSpot ids → the same contact, company and deal are updated, nothing duplicated", {k: list(v) for k, v in hs.items() if k in ("contacts", "companies", "deals")})
+    all_success(c, {k: v for k, v in st.items() if k == "10_crm_sync"}, ["10_crm_sync"])
+    # HubSpot's own "create companies with contacts" automation (on by default in the fake, as in the live portal) must
+    # not lead to a second company; with the automation off, the workflow creates exactly one itself
+    for auto in (True, False):
+        mock.reset()
+        __import__("requests").post(mock.base + "/_control/hubspot_auto_company", json={"on": auto}, timeout=5)
+        camp, lead, em = seed_contacted_lead(mock)
+        mock_patch(mock, "Leads", lead["id"], {"status": "Interested"})
+        _, ex, st = run(stack, lambda: stack.webhook("crm-sync", {"lead_record_id": lead["id"]}), expect=["10_crm_sync"])
+        hs = mock.state()["hubspot"]
+        l = next(x for x in mock.table("Leads") if x["id"] == lead["id"])
+        co = list(hs["companies"].values())
+        c.ok(len(co) == 1 and l.get("hubspot_company_id") == co[0]["id"] and co[0]["properties"].get("name"),
+             f"HubSpot company automation {'on' if auto else 'off'} → exactly 1 company, named, saved on the lead", [(x["id"], x["properties"].get("name")) for x in co])
+        all_success(c, {k: v for k, v in st.items() if k == "10_crm_sync"}, ["10_crm_sync"])
+    # concurrency: fire syncs at the same moment (threads), as two events in the same second would
+    import threading
+
+    def burst(bodies):
+        def go():
+            ts = [threading.Thread(target=lambda b=b: stack.webhook("crm-sync", b)) for b in bodies]
+            [t.start() for t in ts]
+            [t.join() for t in ts]
+        return go
+
+    def counts():
+        h = mock.state()["hubspot"]
+        return {k: len(h[k]) for k in ("contacts", "companies", "deals")}
+    # the same brand-new lead, twice at once
+    mock.reset()
+    camp, lead, em = seed_contacted_lead(mock)
+    mock_patch(mock, "Leads", lead["id"], {"status": "Interested"})
+    _, ex, st = run(stack, burst([{"lead_record_id": lead["id"]}, {"lead_record_id": lead["id"]}]), expect=["10_crm_sync"], timeout=120)
+    l = next(x for x in mock.table("Leads") if x["id"] == lead["id"])
+    c.ok(counts() == {"contacts": 1, "companies": 1, "deals": 1}, "same lead synced twice at the same moment → exactly 1 contact, 1 company, 1 deal", counts())
+    c.ok(len(st.get("10_crm_sync", [])) == 2, "both runs ran", st.get("10_crm_sync"))
+    c.ok(not l.get("crm_lock") and l.get("crm_synced_status") == "Interested", "lock released, lead marked synced", (l.get("crm_lock"), l.get("crm_synced_status")))
+    all_success(c, {k: v for k, v in st.items() if k == "10_crm_sync"}, ["10_crm_sync"])
+    # two different new leads, each with its own event, at the same moment
+    mock.reset()
+    camp = seed_campaign(mock, status="Live")
+    two = seed_leads(mock, camp["id"], n=2, status="Interested")
+    _, ex, st = run(stack, burst([{"lead_record_id": two[0]["id"]}, {"lead_record_id": two[1]["id"]}]), expect=["10_crm_sync"], timeout=120)
+    c.ok(counts() == {"contacts": 2, "companies": 2, "deals": 2}, "two leads at the same moment → each synced exactly once", counts())
+    all_success(c, {k: v for k, v in st.items() if k == "10_crm_sync"}, ["10_crm_sync"])
+    # a lead locked by another live run is left alone; a stale lock (crashed run) is taken over
+    mock.reset()
+    camp = seed_campaign(mock, status="Live")
+    two = seed_leads(mock, camp["id"], n=2, status="Interested")
+    mock_patch(mock, "Leads", two[0]["id"], {"crm_lock": "crm-live-run", "crm_lock_at": iso(now())})
+    mock_patch(mock, "Leads", two[1]["id"], {"crm_lock": "crm-crashed-run", "crm_lock_at": iso(now() - timedelta(minutes=10))})
+    run(stack, lambda: stack.webhook("crm-sync", {"lead_record_id": two[0]["id"]}), expect=["10_crm_sync"])
+    c.ok(counts()["contacts"] == 0 and next(x for x in mock.table("Leads") if x["id"] == two[0]["id"]).get("crm_lock") == "crm-live-run",
+         "lead locked by a running sync → this run leaves it alone", counts())
+    _, ex, st = run(stack, lambda: stack.webhook("crm-sync", {"lead_record_id": two[1]["id"]}), expect=["10_crm_sync"])
+    l = next(x for x in mock.table("Leads") if x["id"] == two[1]["id"])
+    c.ok(counts()["contacts"] == 1 and not l.get("crm_lock") and l.get("hubspot_deal_id"), "stale lock (> 2 min) is taken over and synced", (counts(), l.get("crm_lock")))
     all_success(c, {k: v for k, v in st.items() if k == "10_crm_sync"}, ["10_crm_sync"])
     return c
 

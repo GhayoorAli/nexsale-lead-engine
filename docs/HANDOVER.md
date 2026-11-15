@@ -271,6 +271,11 @@ SLACK_CHANNEL=#leads
    `crm.objects.deals.read/write`.
 2. In `.env`: `HUBSPOT_TOKEN=<token>`.
 
+**Duplicates:** the sync never creates two contacts, companies or deals for one lead, even when several events arrive
+at once (per-lead lock, decision 63). HubSpot's own setting *Settings → Objects → Companies → "Create and associate
+companies with contacts"* may stay on: the sync uses the company HubSpot creates. Companies duplicated before this fix
+(Crystal Klar, MainClean24, Steuerkanzlei Anders) can be merged in HubSpot (company → Actions → Merge).
+
 ### 3.12 Deploy the workflows
 
 ```bash
@@ -305,6 +310,13 @@ edit it. Each client is one company the system writes for. The form checks the i
 | `calendly_link` | the client's booking link | https://calendly.com/… |
 | `target_positive_replies`, `target_meetings` | monthly guarantee for the dashboard | 20, 4 |
 | `target_segments` | notes for the team (who to target) | Hausverwaltungen, Hotels, Kliniken |
+| `industry` | the client's own industry: campaigns in it get a **competitor warning** | Gebäudereinigung |
+| `service_area` | cities/regions the client serves, comma-separated; empty or `bundesweit` = everywhere. A campaign in another city gets a warning | Berlin, Potsdam |
+
+**Warnings before launch:** when a campaign's city is outside the client's `service_area`, or its industry is the client's
+own `industry`, the Control Center (campaign page and list, and right after creating it), Slack "Campaign ready" and the
+"Kampagne bereit" email all say so. The warning never blocks; it prevents emails that offer something the client cannot
+deliver there, or emails to competitors.
 
 The demo data contains two clients:
 - **Nexsale GmbH:** real public Impressum data, signed by David Gretschmann.
@@ -396,8 +408,16 @@ Press **Submit**. You land on the **live status page**:
   - formal "Sie", no filler, the last paragraph asks one question,
   - greeting, signature and legal footer added by code.
 
-  An AI quality check then scores the sequence using quoted evidence: is the opening a real detail of this company, is
-  anything invented? Below 80 → rewritten once → still below 80 → "Needs review" (not sent).
+  An AI quality check then answers questions with quoted evidence (is the opening a real detail of this company, is
+  anything invented, which emails mention the company, any filler?) and **code computes the score** (0–100). A district,
+  the city or the industry alone never counts as a detail; numbers ("3.000 Wohneinheiten", a founding year) do. Code
+  checks the first sentence against **every** real detail (the checker's quote, the details the writer chose, every
+  number in the description), so a good opening is not marked down because the checker quoted the wrong words.
+  - A rule broken by the AI is retried once with exact fix instructions (e.g. *"Synergie" ist verboten – ersetze …*).
+  - Still broken, or a score below 80 → **one rewrite** with exact feedback computed in code (what failed, and which
+    details from the description to use instead). The better of the two versions is kept.
+  - Still not good → **"Needs review"**: not sent, but the draft is kept, so you can edit it on the lead page and click
+    **Lead freigeben**. A lead released in a campaign that is already live gets its first email with the next send.
 
 ### 6.3 Click 2 – review (Slack, email or Control Center)
 
@@ -434,9 +454,14 @@ Then the campaign goes Live. If a check fails, Slack lists what failed (e.g. "At
 |---|---|---|
 | Recipient | always the test inbox (hidden test marker, no visible prefix) | the lead |
 | Timing | email 1 now, follow-ups after 3, 7, 14 **minutes** | after 3, 7, 14 **days**, Mon–Fri 08:00–17:00 |
-| Pace | a few per minute | 60–180 s apart, max 40 per campaign per day |
+| Pace | about 10 per minute, limit = leads × 4 | 60–180 s apart, max 40 per campaign per day |
 
 Follow-ups go in the same thread ("Re: …"). A reply stops the remaining follow-ups for that lead immediately.
+
+**Send order:** every lead gets email 1 before any follow-up is sent; within each group the email waiting longest goes
+first. Follow-up gaps count from each lead's own email 1. The campaign page shows the progress ("Erst-E-Mails 24 von 25
+gesendet", follow-ups, today x of the limit) and says so when the daily limit pauses sending. In test mode the limit is
+sized to the campaign and sending runs at about 10 emails per minute.
 
 ### Replies
 
@@ -624,6 +649,8 @@ Design decisions with their reasons are numbered in `docs/decisions.md`. Read th
 | No Slack messages at all | bot token wrong or bot not in #leads | check `SLACK_BOT_TOKEN`, `/invite` the app to #leads |
 | A red error alert in Slack | a workflow failed; the alert names it | open n8n → Executions → the failed run shows the node and the message |
 | No emails sent / guard error | recipient not on the allowlist, or Gmail login expired | check `TEST_RECIPIENT_ALLOWLIST`; open the Gmail credential in n8n → Sign in with Google |
+| Slack error "Paired item data … 'Config'" in 07a | fixed (decision 61): happened when 2+ mails arrived in the same minute | redeploy the workflows if you still see it |
+| Slack error in 10 – CRM sync "Contact already exists" | fixed (decision 62): two syncs of one lead ran at the same moment | redeploy the workflows if you still see it; nothing is lost, the contact exists |
 | Replies are not picked up | Gmail login expired (7 days in Testing mode) or `07a_gmail_inbox` inactive | sign in again; activate the workflow |
 | Slack says "please cancel it in Calendly too (Calendly: 403 …)" | the token lacks the **Scheduled events: write** scope, or the event was already cancelled | create a token with the scopes in 3.10, put it in `.env`, `docker compose up -d --force-recreate n8n` |
 | Bookings do not appear | `CALENDLY_TOKEN` wrong, or the booking was not made through the link in the answer | check the token; the link carries the lead id (`utm_content`) |
@@ -631,7 +658,7 @@ Design decisions with their reasons are numbered in `docs/decisions.md`. Read th
 | "Unknown field name" from Airtable | the base is older than the code | `.venv/bin/python setup/create_airtable_base.py` |
 | "Unknown client" | the form's Client field does not exactly match a name in Clients | use the exact name, or leave empty for the default client |
 | Fewer leads than Max leads | companies without website, already known from earlier campaigns, or a small city (max 60 per Google search) | expected; try a larger city or another industry term |
-| Many leads "Needs review" | AI quality below 80 after one rewrite, or a rule failed after one retry | read `needs_review_reason` in Airtable; these are deliberately not sent |
+| Many leads "Needs review" | AI quality below 80 after the rewrite, or a rule still broken | read the reason on the campaign page. Often the campaign does not fit the client (warning shown) or the company description is thin. Edit the draft on the lead page and **Lead freigeben**, or rewrite |
 | Many "no email found" rejections | the company publishes no email (contact form only) | expected – verified by hand for real cases |
 | Emails land in Spam (test inbox) | new Gmail sender | mark as "Not spam" once |
 | HubSpot error "INVALID_EMAIL" | HubSpot rejects `.example` test addresses | only real-looking addresses sync; test data on `.example` stays in Airtable |

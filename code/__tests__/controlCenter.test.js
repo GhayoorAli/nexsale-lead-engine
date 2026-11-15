@@ -255,6 +255,13 @@ describe('editing emails by hand, approving a held lead, rewriting a campaign', 
     expect(plan({ action: 'lead_approve', id: 'L9' }, d).error).toMatch(/step 3: filler phrase "umfassend"/);
     expect(plan({ action: 'lead_approve', id: 'L1' }).error).toMatch(/Nur zurückgehaltene Leads/);
   });
+  test('lead_approve in a campaign that is already live: email 1 is scheduled now (else it would never be sent)', () => {
+    const d = d2();
+    d.campaigns[1].status = 'Live';
+    const p = plan({ action: 'lead_approve', id: 'L9' }, d);
+    expect(p.ops[1].body.records[0].fields).toEqual({ status: 'Approved', needs_review_reason: null, sequence_step: 1, next_send_at: now, subject_variant: 'A' });
+    expect(decodeURIComponent(p.redirect)).toMatch(/nächsten Versand/);
+  });
 
   test('campaign_rewrite: deletes unsent emails of approved/held leads and redrafts them, only before launch', () => {
     const p = plan({ action: 'campaign_rewrite', id: 'k2' });

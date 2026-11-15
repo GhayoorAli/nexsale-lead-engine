@@ -303,7 +303,17 @@ def field_from(text, label):
 
 def ai_answer(prompt_id, system, user):
     mode = STATE["ai_mode"].get(prompt_id) or STATE["ai_mode"].get("*")
-    if mode and mode.get("count", 0) != 0:
+    if mode and mode.get("count", 0) != 0 and mode["mode"] == "filler" and prompt_id == "email_sequence":
+        # valid JSON, but the text breaks a fixed rule (live: "mögliche Synergien besprechen" came back after the retry)
+        mode["count"] -= 1
+        good = json.loads(ai_answer_plain(prompt_id, system, user))
+        good["emails"][0]["body"] = good["emails"][0]["body"].replace("Hätten Sie nächste Woche 15 Minuten für ein kurzes Gespräch?", "Hätten Sie Zeit, mögliche Synergien zu besprechen?")
+        return json.dumps(good, ensure_ascii=False)
+    return ai_answer_plain(prompt_id, system, user, mode)
+
+
+def ai_answer_plain(prompt_id, system, user, mode=None):
+    if mode and mode.get("count", 0) != 0 and mode["mode"] != "filler":
         mode["count"] -= 1
         if mode["mode"] == "broken_json":
             return "Hier ist Ihre Sequenz: {emails: [kaputt"
@@ -496,6 +506,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/_control/ai_mode":
             STATE["ai_mode"][body.get("prompt_id", "*")] = {"mode": body["mode"], "count": int(body.get("count", 1))}
             return self._json(200, {"ok": True})
+        if path == "/_control/hubspot_auto_company":
+            STATE["hubspot_auto_company"] = bool(body.get("on", True))
+            return self._json(200, {"ok": True})
+        if path == "/_control/hubspot_seed":
+            o = {"id": str(body["id"]), "properties": body.get("properties", {}), "createdAt": now_iso(), "_unindexed": bool(body.get("unindexed"))}
+            STATE["hubspot"][body["type"]][o["id"]] = o
+            return self._json(200, o)
         if path == "/_control/calendly":
             STATE["calendly"] = body.get("events", [])
             return self._json(200, {"ok": True})
@@ -673,7 +690,7 @@ class Handler(BaseHTTPRequestHandler):
             user = "\n".join(m["content"] for m in msgs if m["role"] == "user")
             pid = (re.search(r"PROMPT_ID:\s*(\w+)", system) or [None, "unknown"])[1]
             text = ai_answer(pid, system, user)
-            STATE["ai_calls"].append({"prompt_id": pid, "provider": "openai", "user": user[:2000], "answer": text[:2000]})
+            STATE["ai_calls"].append({"prompt_id": pid, "provider": "openai", "user": user[:2000], "user_tail": user[-2500:], "answer": text[:2000]})
             return self._json(200, {"id": "chatcmpl-mock", "object": "chat.completion", "model": body.get("model"),
                                     "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
                                     "usage": {"prompt_tokens": 600, "completion_tokens": 350, "total_tokens": 950}})
@@ -682,7 +699,7 @@ class Handler(BaseHTTPRequestHandler):
             user = "\n".join(m["content"] if isinstance(m["content"], str) else "" for m in body.get("messages", []))
             pid = (re.search(r"PROMPT_ID:\s*(\w+)", system) or [None, "unknown"])[1]
             text = ai_answer(pid, system, user)
-            STATE["ai_calls"].append({"prompt_id": pid, "provider": "anthropic", "user": user[:2000], "answer": text[:2000]})
+            STATE["ai_calls"].append({"prompt_id": pid, "provider": "anthropic", "user": user[:2000], "user_tail": user[-2500:], "answer": text[:2000]})
             return self._json(200, {"id": "msg_mock", "type": "message", "role": "assistant", "content": [{"type": "text", "text": text}],
                                     "usage": {"input_tokens": 600, "output_tokens": 350}})
         return self._json(404, {"error": "unknown ai path"})
@@ -763,13 +780,28 @@ class Handler(BaseHTTPRequestHandler):
             m2 = re.match(r"^/hubspot/crm/v3/objects/(\w+)/search$", path)
             otype = m2.group(1)
             flt = body["filterGroups"][0]["filters"][0]
-            res = [o for o in hs[otype].values() if str(o["properties"].get(flt["propertyName"], "")).lower() == str(flt["value"]).lower()]
+            # real HubSpot indexes new objects for search only after a delay (live race); "hidden" objects simulate that
+            res = [o for o in hs[otype].values() if not o.get("_unindexed") and str(o["properties"].get(flt["propertyName"], "")).lower() == str(flt["value"]).lower()]
             return self._json(200, {"total": len(res), "results": res[:1]})
         if m and method == "POST" and not m.group(2):
             otype = m.group(1)
+            if otype == "contacts":
+                # real HubSpot: email is unique for contacts → 409 with the existing id
+                em = str(body.get("properties", {}).get("email", "")).lower()
+                dup = next((o for o in hs["contacts"].values() if em and str(o["properties"].get("email", "")).lower() == em), None)
+                if dup:
+                    return self._json(409, {"status": "error", "message": f"Contact already exists. Existing ID: {dup['id']}", "category": "CONFLICT"})
             oid = str(len(hs[otype]) + 1001)
             o = {"id": oid, "properties": body.get("properties", {}), "createdAt": now_iso()}
             hs[otype][oid] = o
+            if otype == "contacts" and STATE.get("hubspot_auto_company", True):
+                # real portal default "Create and associate companies with contacts": HubSpot makes a company from the
+                # email domain right after the contact and links it (live: every synced lead got a second company)
+                dom = str(o["properties"].get("email", "")).split("@")[-1].lower()
+                if dom and "@" in str(o["properties"].get("email", "")):
+                    cid = "9" + str(len(hs["companies"]) + 1001)
+                    hs["companies"][cid] = {"id": cid, "properties": {"domain": dom, "name": o["properties"].get("company")}, "createdAt": now_iso(), "_unindexed": True}
+                    hs["associations"].append(["contact", oid, "company", cid])
             return self._json(201, o)
         if m and method == "PATCH" and m.group(2):
             o = hs[m.group(1)].get(m.group(2))
@@ -777,6 +809,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(404, {"message": "not found"})
             o["properties"].update(body.get("properties", {}))
             return self._json(200, o)
+        g = re.match(r"^/hubspot/crm/v4/objects/(\w+)/(\w+)/associations/(\w+)$", path)
+        if g and method == "GET":
+            res = [{"toObjectId": int(k[3]) if k[3].isdigit() else k[3]} for k in hs["associations"] if k[0] == g.group(1) and k[1] == g.group(2) and k[2] == g.group(3)]
+            return self._json(200, {"results": res})
         a = re.match(r"^/hubspot/crm/v4/objects/(\w+)/(\w+)/associations/default/(\w+)/(\w+)$", path)
         if a and method == "PUT":
             key = list(a.groups())

@@ -59,7 +59,7 @@ test('berlinToUtc handles summer and winter time', () => {
 test('randomDelaySeconds', () => {
   expect(S.randomDelaySeconds({}, 0)).toBe(60);
   expect(S.randomDelaySeconds({}, 1)).toBe(180);
-  expect(S.randomDelaySeconds({ demoMode: true }, 0.5)).toBeGreaterThanOrEqual(2);
+  expect(S.randomDelaySeconds({ demoMode: true }, 0.5)).toBe(1); // demo: 1 s gap, test inbox only
   expect(S.randomDelaySeconds({ mock: true })).toBe(0);
   const r = S.randomDelaySeconds({});
   expect(r).toBeGreaterThanOrEqual(60);

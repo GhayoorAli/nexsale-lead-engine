@@ -15,28 +15,30 @@ Beispiele (nur zur Orientierung, andere Branchen entsprechend):
 - Agentur für Neukundengewinnung an eine Reinigungsfirma: "Sie reinigen Arztpraxen in Mitte – dort zählen feste Teams und lückenlose Hygiene-Dokumentation."
 
 Aufbau der Sequenz:
-- E-Mail 1 (Erstkontakt, unter 85 Wörtern):
-  1. Erster Satz: ein konkretes Detail der Empfänger-Firma aus der Firmenbeschreibung (oder der Anlass, falls einer genannt ist), verbunden mit einer Beobachtung. Nicht: "Die Firma X bietet umfassende Leistungen an."
+- E-Mail 1 (Erstkontakt, 60–75 Wörter; harte Grenze 89):
+  1. Erster Satz: ein konkretes Detail, das NUR auf diese Firma passt, wörtlich aus der Firmenbeschreibung (oder der Anlass, falls einer genannt ist), verbunden mit einer Beobachtung. Gute Details: eine Zahl ("rund 3.000 Wohneinheiten"), ein Gründungsjahr, eine Spezialisierung ("Abfindungsberatung"), eine Kundengruppe ("Arztpraxen"). KEIN Detail sind: Ort oder Stadtteil allein ("in München-Laim"), die Branche ("bietet Steuerberatung an") oder allgemeine Leistungen ("bietet Reinigungsdienstleistungen an"), denn sie passen auf jede Firma dort.
   2. Ein Satz, wer schreibt: "Mein Name ist <Absender>, <Rolle> bei <Absenderfirma>." und in einem Satz das Angebot in eigenen Worten.
   3. Der konkrete Nutzen für genau diese Firma.
   4. Call-to-Action als Frage, z. B. ein kurzes Telefonat von 15 Minuten.
-- E-Mail 2 (Tag 3, höchstens 45 Wörter): kurzer Bezug auf die erste Nachricht, dann ein NEUER Aspekt: ein typisches Problem genau dieser Kundengruppe, vorsichtig formuliert ("oft", "häufig").
-- E-Mail 3 (Tag 7, höchstens 45 Wörter): NEUER Aspekt: wie die Zusammenarbeit konkret für DIESE Firma aussähe, in 2–3 kurzen Schritten. Keine Geschichte über eine andere Firma, keine Ergebnisse, Zahlen oder Kunden, die nicht im Angebot stehen.
-- E-Mail 4 (Tag 14, höchstens 45 Wörter): höflicher Abschluss mit Bezug auf ein Detail der Firma; danach melden Sie sich nicht weiter, die Tür bleibt offen. Schlussfrage z. B. "Darf ich mich in ein paar Monaten noch einmal melden?"
-- Kein "ich wollte nur nachhaken". Jede E-Mail endet mit genau einem Call-to-Action als Frage im letzten Absatz.
+- E-Mail 2 (Tag 3, höchstens 40 Wörter): kurzer Bezug auf die erste Nachricht, dann ein NEUER Aspekt: ein typisches Problem genau dieser Kundengruppe, vorsichtig formuliert ("oft", "häufig").
+- E-Mail 3 (Tag 7, höchstens 40 Wörter): NEUER Aspekt: wie die Zusammenarbeit konkret für DIESE Firma aussähe, in 2–3 kurzen Schritten als Fließtext; danach eine Frage als letzter Satz. Keine Geschichte über eine andere Firma, keine Ergebnisse, Zahlen oder Kunden, die nicht im Angebot stehen.
+- E-Mail 4 (Tag 14, höchstens 40 Wörter): höflicher Abschluss mit sachlichem Bezug auf ein Detail der Firma (kein Lob wie "beeindruckend"); danach melden Sie sich nicht weiter, die Tür bleibt offen. Schlussfrage z. B. "Darf ich mich in ein paar Monaten noch einmal melden?"
+- Kein "ich wollte nur nachhaken". JEDE der 4 E-Mails endet mit genau einer Frage als letztem Satz (wird geprüft, auch bei E-Mail 2–4).
+- Jede E-Mail enthält ein anderes Detail der Firma aus der Firmenbeschreibung.
 
 Sprache und Form (alle Pflicht, werden automatisch geprüft):
 - Deutsch, förmliche Sie-Form, niemals "du", "dich", "dein", "ihr".
 - Reiner Text, keine Emojis, keine Ausrufezeichen, keine Aufzählungszeichen.
 - Schreibe konkret: Nenne beim Nutzen immer WER oder WAS betroffen ist und WO (z. B. "Wohnanlagen in Pankow", "Arztpraxen in Mitte"), statt allgemeiner Versprechen wie "Ressourcen effizient nutzen" oder "Marktposition stärken".
 - Verboten sind leere Floskeln und Lob: "Unternehmen/Firmen wie Ihre(s)", "in Ihrer Branche", "messbare Ergebnisse", "umfassend", "exzellent", "beeindruckend", "zuverlässige Partner", "Kernkompetenzen", "revolutionär", "Synergie", "Win-win", "Ich hoffe, es geht Ihnen gut".
+  Stattdessen: "Synergien besprechen" → "besprechen, ob das für Sie passt"; "sich auf Ihre Kernkompetenzen konzentrieren" → "sich auf Ihre Mandanten / Ihr Tagesgeschäft konzentrieren"; "umfassende Leistungen" → die konkrete Leistung nennen; "beeindruckend" → das Detail ohne Bewertung nennen.
 - Erfinde niemals Fakten, Zahlen, Kundennamen, Referenzen oder Ergebnisse. Nutze nur Firmenbeschreibung, Anlass und Angebot unten.
 - Keine Platzhalter wie {{name}} oder [Firma].
 - Nenne die Empfänger-Firma mit ihrem kurzen Namen (ohne Zusätze wie "| Gebäudereinigungsservice").
 - Betreff von E-Mail 1: höchstens 5 Wörter, sachlich, mit Bezug zur Firma, ohne Clickbait, ohne "Re:". Dazu eine alternative Betreffzeile (subject_alt, ebenfalls höchstens 5 Wörter) für einen A/B-Test. E-Mail 2–4 laufen im selben Thread weiter.
 
 Schreibe Zeilenumbrüche im body als echte Zeilenumbrüche (im JSON als \n kodiert), nie als sichtbaren Text.
-Wähle zuerst 3 konkrete Details wörtlich aus der Firmenbeschreibung ("details") und benutze sie in den E-Mails.
+Wähle zuerst 3 konkrete Details wörtlich aus der Firmenbeschreibung ("details"), die nur auf diese Firma passen (keine Orte, keine Branche), und benutze sie in den E-Mails.
 
 Antworte ausschließlich mit JSON in genau diesem Format:
 {"details":["…","…","…"],"emails":[{"step":1,"subject":"…","subject_alt":"…","body":"…"},{"step":2,"subject":"…","body":"…"},{"step":3,"subject":"…","body":"…"},{"step":4,"subject":"…","body":"…"}]}

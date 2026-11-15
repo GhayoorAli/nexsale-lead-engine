@@ -10,7 +10,30 @@ function linkId(v) {
 }
 
 /**
- * ctx: {leads, campaigns, emails, blocklist, sentTodayByCampaign, replies, now, isBlocked}
+ * Emails per campaign per day. Real mode: the campaign's daily_limit (default 40) protects the sender's reputation.
+ * DEMO_MODE: days are minutes and every email goes to the test inbox only, so the limit is sized to the whole sequence
+ * (leads × 4) – otherwise a 25-lead demo stopped after 40 emails (live, 2026-11-15).
+ */
+function dailyLimit(campaign, leadCount, demoMode) {
+  const base = Number(campaign && campaign.daily_limit) || 40;
+  return demoMode ? Math.max(base, (Number(leadCount) || 0) * 4) : base;
+}
+
+/**
+ * Send order: every lead gets email 1 before any follow-up goes out, and within each group the email that has been due
+ * the longest goes first. Live bug: the order was the Airtable list order, so follow-ups of early leads overtook a first
+ * email that had been due since launch (Helpling), until the daily limit stopped everything.
+ */
+function sendOrder(a, b) {
+  const s1 = Number(a.step) === 1 ? 0 : 1;
+  const s2 = Number(b.step) === 1 ? 0 : 1;
+  if (s1 !== s2) return s1 - s2;
+  const t = new Date(a.lead.next_send_at).getTime() - new Date(b.lead.next_send_at).getTime();
+  return t || String(a.lead.id).localeCompare(String(b.lead.id));
+}
+
+/**
+ * ctx: {leads, campaigns, emails, blocklist, sentTodayByCampaign, replies, now, isBlocked, maxPerRun, demoMode}
  * returns {due:[{lead, email, prevEmail, campaign}], skipped:[{leadId, reason}]}
  */
 function selectDue(ctx) {
@@ -21,7 +44,11 @@ function selectDue(ctx) {
   });
   const repliedLeads = new Set((ctx.replies || []).map((r) => linkId(r.lead)));
   const sentToday = Object.assign({}, ctx.sentTodayByCampaign || {});
-  const due = [];
+  // every lead with a sequence in the campaign (also those already finished) – sizes the test-mode limit
+  const seqLeads = {};
+  (ctx.emails || []).forEach((e) => { const cid = e.campaign_record_id; if (!cid) return; (seqLeads[cid] = seqLeads[cid] || new Set()).add(linkId(e.lead) || e.lead_record_id); });
+  const leadsPerCampaign = Object.fromEntries(Object.entries(seqLeads).map(([k, v]) => [k, v.size]));
+  const candidates = [];
   const skipped = [];
   (ctx.leads || []).forEach((l) => {
     const cid = linkId(l.campaign) || l.campaign_record_id;
@@ -40,15 +67,6 @@ function selectDue(ctx) {
       skipped.push({ leadId: l.id, reason: 'on blocklist' });
       return;
     }
-    if (ctx.maxPerRun && due.length >= ctx.maxPerRun) {
-      skipped.push({ leadId: l.id, reason: 'per-run cap reached (next tick)' });
-      return;
-    }
-    const limit = Number(campaign.daily_limit) || 40;
-    if ((sentToday[cid] || 0) >= limit) {
-      skipped.push({ leadId: l.id, reason: 'daily limit reached' });
-      return;
-    }
     const emails = (ctx.emails || []).filter((e) => linkId(e.lead) === l.id || e.lead_record_id === l.id);
     const email = emails.find((e) => Number(e.step) === step && e.status === 'Approved');
     if (!email) {
@@ -56,8 +74,21 @@ function selectDue(ctx) {
       return;
     }
     const prevEmail = emails.filter((e) => e.status === 'Sent').sort((a, b) => Number(b.step) - Number(a.step))[0] || null;
-    sentToday[cid] = (sentToday[cid] || 0) + 1;
-    due.push({ lead: l, email, prevEmail, campaign });
+    candidates.push({ lead: l, email, prevEmail, campaign, cid, step });
+  });
+  candidates.sort(sendOrder);
+  const due = [];
+  candidates.forEach((c) => {
+    if (ctx.maxPerRun && due.length >= ctx.maxPerRun) {
+      skipped.push({ leadId: c.lead.id, reason: 'per-run cap reached (next tick)' });
+      return;
+    }
+    if ((sentToday[c.cid] || 0) >= dailyLimit(c.campaign, leadsPerCampaign[c.cid], ctx.demoMode)) {
+      skipped.push({ leadId: c.lead.id, reason: 'daily limit reached' });
+      return;
+    }
+    sentToday[c.cid] = (sentToday[c.cid] || 0) + 1;
+    due.push({ lead: c.lead, email: c.email, prevEmail: c.prevEmail, campaign: c.campaign });
   });
   return { due, skipped };
 }
@@ -119,5 +150,5 @@ function bounceCheck(sentToday, bouncedToday, threshold) {
   return { rate: Math.round(rate * 10000) / 10000, pause: sentToday > 0 && rate > t };
 }
 
-const sendingApi = { SENDABLE, STOPPED, selectDue, buildMessage, afterSend, bounceCheck, linkId };
+const sendingApi = { SENDABLE, STOPPED, selectDue, sendOrder, dailyLimit, buildMessage, afterSend, bounceCheck, linkId };
 if (typeof module !== 'undefined' && module.exports) module.exports = sendingApi;

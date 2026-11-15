@@ -27,7 +27,7 @@ NEXSALE = {
     "offer": "Wir gewinnen für B2B-Unternehmen planbar Neukunden: Wir identifizieren die Wunschkunden, sprechen die Entscheider persönlich per E-Mail an, "
              "qualifizieren die Antworten vor und legen nur Termine mit echtem Bedarf in den Kalender – ohne Cold Calling.",
     "qualifying_questions": "Welche Kundengruppen möchten Sie gewinnen, und wie gewinnen Sie Neukunden heute?",
-    "target_positive_replies": 20, "target_meetings": 4, "slack_channel": "#leads",
+    "target_positive_replies": 20, "target_meetings": 4, "slack_channel": "#leads", "service_area": "bundesweit",
 }
 CLIENT = {
     "name": "Real Service GmbH", "industry": "Gebäudereinigung", "calendly_link": "https://calendly.com/nexsale-demo/15min", "is_default": False,
@@ -35,7 +35,7 @@ CLIENT = {
     "offer": "Wir übernehmen die regelmäßige Unterhaltsreinigung von Wohnanlagen, Treppenhäusern, Büros und Praxen in Berlin – mit festen Teams, "
              "festen Zeiten und dokumentierter Qualitätskontrolle.",
     "qualifying_questions": "Wie groß ist die zu reinigende Fläche ungefähr, und wann endet Ihr aktueller Reinigungsvertrag?",
-    "target_segments": "Hausverwaltungen, Hotels, Kliniken & Praxen, Schulen & Kitas",
+    "target_segments": "Hausverwaltungen, Hotels, Kliniken & Praxen, Schulen & Kitas", "service_area": "Berlin",
     "target_positive_replies": 20, "target_meetings": 4, "slack_channel": "#leads",
 }
 LEADS = [
