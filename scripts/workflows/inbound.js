@@ -109,12 +109,32 @@ function crmSync() {
   w.schedule('Every 15 minutes', { field: 'minutes', minutesInterval: 15 });
   w.at(1, 0);
   w.config();
-  w.atList('Leads to sync', 'Leads', "\"AND(OR({status}='Interested',{status}='Meeting booked',{status}='Meeting held',{status}='No-show',AND(OR({status}='Not interested',{status}='Unsubscribed'),{hubspot_deal_id}!='')),{crm_synced_status}!={status})\"", { maxRecords: 10, maxPages: 1, notes: 'Not interested / Unsubscribed only when a deal already exists: closes it, never creates one' });
+  // the 15-minute safety run skips leads changed in the last 3 minutes (the event-triggered run handles them; live: two
+  // runs 0.4 s apart raced). Not interested / Unsubscribed only when a deal already exists: closes it, never creates one.
+  w.code('Sync query', ['crm'], `
+const hook = $('Sync now').isExecuted ? ($('Sync now').first().json.body || {}) : null;
+return [{ json: { formula: M.crm.syncFormula(!hook, hook && hook.lead_record_id) } }];`, { notes: 'Event: only that lead; schedule: pending leads unchanged for 3 minutes' });
+  w.atList('Leads to sync', 'Leads', "$('Sync query').first().json.formula", { maxRecords: 10, maxPages: 1 });
+  // per-lead lock: claim → wait until parallel runs have written → read back → continue only with own leads
+  w.code('Claim leads', ['airtable', 'crm'], `
+const runId = 'crm-' + $execution.id;
+const c = M.crm.lockClaim(M.airtable.fromItems($('Leads to sync').all()), runId, new Date().toISOString());
+if (!c.ids.length) return [];
+return [{ json: { runId, ids: c.ids, records: c.records, typecast: true } }];`, { notes: 'Leads locked by another live run are left to that run' });
+  w.atWrite('Write lock', 'Leads', 'PATCH');
+  w.wait('Let parallel runs write', '2');
+  w.atList('Read back', 'Leads', "'OR(' + $('Claim leads').first().json.ids.map((id) => \"RECORD_ID()='\" + id + \"'\").join(',') + ')'");
+  w.code('Locked leads', ['airtable', 'crm'], `
+const runId = $('Claim leads').first().json.runId;
+M.airtable.fromItems($('Read back').all()); // a failed read must fail the run, never look empty
+const mine = M.crm.lockedByMe($('Read back').all().flatMap((i) => i.json.records || []), runId);
+if (!mine.length) return [];
+return [{ json: { records: mine } }];`, { notes: 'Only leads this run holds: exactly one of two parallel runs continues' });
   w.atList('Meetings', 'Meetings', "\"{status}!='Cancelled'\"");
   w.atList('Campaigns', 'Campaigns', null);
   w.atList('Clients', 'Clients', null);
   w.code('Plan', ['airtable', 'crm'], `
-const leads = M.airtable.fromItems($('Leads to sync').all());
+const leads = M.airtable.fromItems($('Locked leads').all());
 const meetings = M.airtable.fromItems($('Meetings').all());
 const camps = M.airtable.fromItems($('Campaigns').all());
 const clients = M.airtable.fromItems($('Clients').all());
@@ -128,21 +148,31 @@ return leads.map((l) => {
   hs('Search contact', 'POST', `={{ ${CFG('hubspotUrl')} }}/crm/v3/objects/contacts/search`, "{ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: String($json.lead.email).toLowerCase() }] }], limit: 1 }");
   w.code('Contact upsert', ['crm'], `
 const p = $('Plan').item.json;
-const id = M.crm.firstResultId($json);
+const id = M.crm.knownId(p.lead.hubspot_contact_id, $json);
 return { json: M.crm.upsertPlan(id, 'contacts', M.crm.contactProps(p.lead, { create: !id })) };`, { each: true });
-  hs('Upsert contact', '={{ $json.method }}', `={{ ${CFG('hubspotUrl')} }}{{ $json.path }}`, '$json.body');
+  // HubSpot's answer is passed on unchanged (neverError): a 409 "already exists" → the existing contact is taken (see
+  // Contact); any other error still fails the run loudly, and the 15-minute run syncs the lead again later
+  hs('Upsert contact', '={{ $json.method }}', `={{ ${CFG('hubspotUrl')} }}{{ $json.path }}`, '$json.body', { neverError: true });
+  w.code('Contact', ['crm'], `
+const r = M.crm.upsertId($json);
+if (!r.id) throw new Error('HubSpot contact not saved: ' + r.error);
+return { json: r };`, { each: true, notes: '409 "Contact already exists. Existing ID" → that id; any other error still fails the run' });
+  // HubSpot may create a company for a new contact by itself (portal automation): give it a moment, then use that one
+  w.wait('Let HubSpot link a company', '2');
+  hs('Contact companies', 'GET', `={{ ${CFG('hubspotUrl')} }}/crm/v4/objects/contact/{{ $('Contact').item.json.id }}/associations/company`, null, { neverError: true });
   hs('Search company', 'POST', `={{ ${CFG('hubspotUrl')} }}/crm/v3/objects/companies/search`, "{ filterGroups: [{ filters: [{ propertyName: 'domain', operator: 'EQ', value: String($('Plan').item.json.lead.domain || '').toLowerCase() }] }], limit: 1 }");
   w.code('Company upsert', ['crm'], `
 const p = $('Plan').item.json;
-return { json: M.crm.upsertPlan(M.crm.firstResultId($json), 'companies', M.crm.companyProps(p.lead)) };`, { each: true });
+const linked = M.crm.associatedId($('Contact companies').item.json);
+return { json: M.crm.upsertPlan(M.crm.knownId(p.lead.hubspot_company_id, $json, linked), 'companies', M.crm.companyProps(p.lead)) };`, { each: true });
   hs('Upsert company', '={{ $json.method }}', `={{ ${CFG('hubspotUrl')} }}{{ $json.path }}`, '$json.body');
-  hs('Contact ↔ company', 'PUT', `={{ ${CFG('hubspotUrl')} }}/crm/v4/objects/contact/{{ $('Upsert contact').item.json.id }}/associations/default/company/{{ $('Upsert company').item.json.id }}`, null);
+  hs('Contact ↔ company', 'PUT', `={{ ${CFG('hubspotUrl')} }}/crm/v4/objects/contact/{{ $('Contact').item.json.id }}/associations/default/company/{{ $('Upsert company').item.json.id }}`, null);
   hs('Search deal', 'POST', `={{ ${CFG('hubspotUrl')} }}/crm/v3/objects/deals/search`, "{ filterGroups: [{ filters: [{ propertyName: 'dealname', operator: 'EQ', value: $('Plan').item.json.dealname }] }], limit: 1 }");
   w.code('Deal upsert', ['crm'], `
 const p = $('Plan').item.json;
-return { json: M.crm.upsertPlan(M.crm.firstResultId($json), 'deals', M.crm.dealProps(p.lead, p.meeting, p.owner)) };`, { each: true });
+return { json: M.crm.upsertPlan(M.crm.knownId(p.lead.hubspot_deal_id, $json), 'deals', M.crm.dealProps(p.lead, p.meeting, p.owner)) };`, { each: true });
   hs('Upsert deal', '={{ $json.method }}', `={{ ${CFG('hubspotUrl')} }}{{ $json.path }}`, '$json.body');
-  hs('Deal ↔ contact', 'PUT', `={{ ${CFG('hubspotUrl')} }}/crm/v4/objects/deal/{{ $('Upsert deal').item.json.id }}/associations/default/contact/{{ $('Upsert contact').item.json.id }}`, null);
+  hs('Deal ↔ contact', 'PUT', `={{ ${CFG('hubspotUrl')} }}/crm/v4/objects/deal/{{ $('Upsert deal').item.json.id }}/associations/default/contact/{{ $('Contact').item.json.id }}`, null);
   hs('Deal ↔ company', 'PUT', `={{ ${CFG('hubspotUrl')} }}/crm/v4/objects/deal/{{ $('Upsert deal').item.json.id }}/associations/default/company/{{ $('Upsert company').item.json.id }}`, null);
   w.code('Note', ['crm'], `
 const p = $('Plan').item.json;
@@ -151,14 +181,14 @@ return { json: M.crm.noteProps(text, new Date().toISOString(), $('Upsert deal').
   hs('Add note', 'POST', `={{ ${CFG('hubspotUrl')} }}/crm/v3/objects/notes`, '$json');
   w.code('Airtable update', ['airtable'], `
 const plans = $('Plan').all();
-const c = $('Upsert contact').all(), co = $('Upsert company').all(), d = $('Upsert deal').all();
+const c = $('Contact').all(), co = $('Upsert company').all(), d = $('Upsert deal').all();
 return M.airtable.updateBatches(plans.map((p, i) => ({ id: p.json.lead.id, fields: {
-  hubspot_contact_id: String(c[i].json.id), hubspot_company_id: String(co[i].json.id), hubspot_deal_id: String(d[i].json.id), crm_synced_status: p.json.lead.status,
+  hubspot_contact_id: String(c[i].json.id), hubspot_company_id: String(co[i].json.id), hubspot_deal_id: String(d[i].json.id), crm_synced_status: p.json.lead.status, crm_lock: null, crm_lock_at: null,
 } }))).map((b) => ({ json: b }));`);
   w.atWrite('Save HubSpot ids', 'Leads', 'PATCH');
   w.connect('Sync now', 'Config');
   w.connect('Every 15 minutes', 'Config');
-  w.chain('Config', 'Leads to sync', 'Meetings', 'Campaigns', 'Clients', 'Plan', 'Search contact', 'Contact upsert', 'Upsert contact', 'Search company', 'Company upsert',
+  w.chain('Config', 'Sync query', 'Leads to sync', 'Claim leads', 'Write lock', 'Let parallel runs write', 'Read back', 'Locked leads', 'Meetings', 'Campaigns', 'Clients', 'Plan', 'Search contact', 'Contact upsert', 'Upsert contact', 'Contact', 'Let HubSpot link a company', 'Contact companies', 'Search company', 'Company upsert',
     'Upsert company', 'Contact ↔ company', 'Search deal', 'Deal upsert', 'Upsert deal', 'Deal ↔ contact', 'Deal ↔ company', 'Note', 'Add note', 'Airtable update', 'Save HubSpot ids');
   return w;
 }

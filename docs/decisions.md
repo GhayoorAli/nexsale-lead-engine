@@ -256,3 +256,59 @@ Choices that PLAN.md / CLAUDE.md left open, or where the plan had to be adapted.
     cancel with Calendly's answer (tested with a forced 403). The Control Center's **Termin absagen** button does the
     same through 11_slack_actions (`meeting_cancel`) and sets the lead back to Interested, because the host cancelled,
     not the lead. Needs the token scope Scheduled events: write.
+
+59. **Email quality: exact feedback, rewrite of rule-breaking drafts, fit warnings.** Live analysis of 18 held leads
+    (of 46): 12 broke a fixed rule after the retry (banned words like "Synergie"/"Kernkompetenz", 90–100 words), 6 scored
+    55–60 because the opening named only the district. The rewrite got the checker's own "issues", which were empty in
+    every case ("Probleme: . Hinweis: ."), so it repeated the mistake. Now (a) code turns every validation error and every
+    failed quality question into a concrete German instruction (`validators.fixHints`, `qualityFeedback`), used by the
+    retry and the rewrite; (b) a readable draft that still breaks a rule after the retry gets the one rewrite too (broken
+    JSON still retries only once, as specified), and if all fails the draft is kept for editing instead of a lead without
+    emails; (c) the better of the two versions is kept; (d) numbers with 3+ digits count as a company detail; (e) the
+    prompt names alternatives for banned phrases, says a district is not a detail, and targets 60–75 words. Also
+    `Clients.service_area` + `industry`: a campaign outside the client's area or in its own industry is flagged
+    (`campaignFit.js`), never blocked. Releasing a held lead in a live campaign now schedules its first email (it was
+    never sent before).
+
+60. **Opening verified against every real detail (Fix A).** Live: Mr. Cleaner's rewrite opened "Seit 2006 bietet …",
+    but the AI checker quoted "professionelle Reinigungsdienstleistungen" (generic), so a good opening scored 55. Code now
+    accepts the opening if it contains the checker's verified quote, a number (3+ digits) from the description, or 2
+    distinctive words of one of the writer's own chosen details. Generic openings still fail (tested). Also: sentence
+    ends are detected with an explicit abbreviation list ("Mr.", "Dr.", "z. B.", "Nr." …); the earlier 1–3-letter rule
+    treated "… an." / "… zu." as abbreviations, which also stopped paragraph splitting ("one block of text").
+
+61. **Gmail inbox: every mail of a poll is handed over.** Live: two Calendly notifications in the same minute crashed
+    07a ("Paired item data for item from node 'Config' is unavailable"): Config turns the poll's mails into one item, and
+    the hand-over looked each mail up through it. The whole poll failed, so two lead replies in one minute would have been
+    lost (Gmail does not deliver them again). Now a code step maps all mails of the poll to one payload each
+    (`inbox.toReplyPayloads`, deduplicated) and the hand-over posts each item as is. Tested by running the generated
+    workflow's code with 3 mails at once.
+
+62. **HubSpot sync is safe against two runs at once.** Live: the reply's event-triggered sync and the 15-minute run
+    started 0.4 s apart for the same lead; the second searched before HubSpot had indexed the new contact and got
+    409 "Contact already exists". Now: (a) HubSpot ids saved in Airtable are used directly (no search, no index delay);
+    (b) the contact upsert passes HubSpot's answer on, and a 409 takes the existing id (`crm.upsertId`); any other error
+    still fails the run; (c) the 15-minute safety run skips leads changed in the last 3 minutes (Airtable
+    `LAST_MODIFIED_TIME()`), so it never races the event-triggered run. Tested with a contact that exists but is not yet
+    searchable, and with saved ids (nothing duplicated).
+
+63. **HubSpot sync safe in every concurrency case.** (a) An event-triggered sync handles only the lead of its event
+    (`syncFormula(false, leadId)`); the 15-minute run takes the rest. (b) Per-lead lock in Airtable (`crm_lock`,
+    `crm_lock_at`): a run writes its id, waits 2 s so parallel runs have written too, reads back and continues only with
+    the leads that still carry its id (Airtable keeps the last write → exactly one winner); the loser leaves the lead,
+    which the next run picks up if its status changed meanwhile; a lock older than 2 minutes (crashed run) is taken over.
+    (c) Live finding: HubSpot's portal automation "Create and associate companies with contacts" created a second company
+    for every new contact (3 of 3 synced leads had two). After creating a contact the sync now waits 2 s and uses the
+    company HubSpot attached (`crm.associatedId`), else the domain search, else creates one. Tested: same lead twice at
+    once, two leads at once, live lock, stale lock, automation on and off; verified live (1 contact, 1 company, 1 deal).
+
+64. **Send order: first emails first, longest waiting first.** Live: in a 25-lead demo, follow-ups of early leads
+    overtook a first email that had been due since launch (the due list was in Airtable order), and the 40-per-day limit
+    then stopped everything; one company never got email 1. Now `sending.sendOrder`: every due first email goes before
+    any follow-up, and within each group the email due longest goes first. Follow-up timing stays relative to each lead's
+    own email 1, so the 1 → 2 → 3 → 4 order and gaps hold. In real mode, a campaign larger than the daily limit sends
+    its first-email wave first (e.g. 200 leads / 40 per day = 5 working days); follow-ups follow. More volume = more
+    sending mailboxes, never faster sending from one. Test mode: daily limit sized to the campaign (leads × 4, all to the
+    test inbox), 10 emails per minute with 1 s gaps (one run ~45 s, so runs never overlap); real mode unchanged (5 per
+    15-min tick, 60–180 s apart, 40 per day, Mon–Fri 08–17). The campaign page shows "Erst-E-Mails x von y", follow-ups,
+    today's count vs. the limit, and "Tageslimit erreicht" when sending paused.

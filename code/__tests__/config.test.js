@@ -59,7 +59,7 @@ test('limits, lists, provider, confidence', () => {
 test('demo ticker and per-run cap', () => {
   expect(C.buildConfig({}).demoTicker).toBe(true);
   expect(C.buildConfig({ DISABLE_DEMO_TICKER: 'true' }).demoTicker).toBe(false);
-  expect(C.buildConfig({}).maxSendsPerRun).toBe(6);
+  expect(C.buildConfig({}).maxSendsPerRun).toBe(10); // demo: 10 per minute tick (user decision 2026-11-15)
   expect(C.buildConfig({ DEMO_MODE: 'false' }).maxSendsPerRun).toBe(5);
 });
 

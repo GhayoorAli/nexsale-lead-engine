@@ -119,7 +119,7 @@ const sentToday = {};
 emails.filter((e) => e.status === 'Sent' && e.sent_at && M.schedule.berlinDate(e.sent_at) === today).forEach((e) => { sentToday[e.campaign_record_id] = (sentToday[e.campaign_record_id] || 0) + 1; });
 const r = M.sending.selectDue({
   leads: M.airtable.fromItems($('Sendable leads').all()), campaigns, emails, replies: M.airtable.fromItems($('Replies').all()),
-  blocklist: M.airtable.fromItems($('Blocklist').all()), sentTodayByCampaign: sentToday, now, isBlocked: M.guard.isBlocked, maxPerRun: cfg.maxSendsPerRun,
+  blocklist: M.airtable.fromItems($('Blocklist').all()), sentTodayByCampaign: sentToday, now, isBlocked: M.guard.isBlocked, maxPerRun: cfg.maxSendsPerRun, demoMode: cfg.demoMode,
 });
 const clients = M.airtable.fromItems($('Clients').all());
 return r.due.map((d) => {

@@ -67,7 +67,8 @@ function buildConfig(env) {
     // DEMO_MODE sends from an every-minute ticker; the test stack turns it off and drives sends by webhook
     demoTicker: !bool(env.DISABLE_DEMO_TICKER, false),
     // cap per run so one run always finishes before the next tick (no overlapping runs)
-    maxSendsPerRun: demoMode ? 6 : 5,
+    // demo: 10 per minute tick with 1 s gaps (~45 s per run, so runs never overlap); real: 5 per 15-min tick, 60–180 s apart
+    maxSendsPerRun: demoMode ? 10 : 5,
     testLeadLimit: parseLimit(env.TEST_LEAD_LIMIT, demoMode),
     allowlist,
     testProspectEmail: String(env.TEST_PROSPECT_EMAIL || '').trim().toLowerCase(),

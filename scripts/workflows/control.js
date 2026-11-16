@@ -25,7 +25,7 @@ return [{ json: { ok: auth.ok, reason: auth.reason, user: auth.user, isAction, q
   w.ifTrue('Action?', "$('Login').first().json.isAction");
   // pages
   w.at(12, 1);
-  w.code('Render page', ['airtable', 'report', 'dashboard', 'campaign', 'validateEmails', 'controlCenter'], `
+  w.code('Render page', ['airtable', 'report', 'dashboard', 'campaign', 'campaignFit', 'sending', 'validateEmails', 'controlCenter'], `
 const cfg = $('Config').first().json.cfg;
 const l = $('Login').first().json;
 const all = (n) => M.airtable.fromItems($(n).all());
@@ -39,7 +39,7 @@ return [{ json: { html } }];`);
   w.respond('Show page', '$json.html', { html: true });
   // actions
   w.at(12, -1);
-  w.code('Plan action', ['airtable', 'campaign', 'validateEmails', 'controlCenter'], `
+  w.code('Plan action', ['airtable', 'campaign', 'campaignFit', 'validateEmails', 'controlCenter'], `
 const cfg = $('Config').first().json.cfg;
 const l = $('Login').first().json;
 const all = (n) => M.airtable.fromItems($(n).all());

@@ -1,6 +1,6 @@
 # Test report
 
-Generated 2026-11-15 15:00 (Europe/Berlin). All runs in test mode: max 10 companies, no email to a real company.
+Generated 2026-11-15 23:49 (Europe/Berlin). All runs in test mode: max 10 companies, no email to a real company.
 
 Mode: **mock services** (`MOCK_EXTERNAL=true`, real n8n 1.123.5 in Docker, external APIs from `tests/mock_server`). Live runs against the real services need the steps in `docs/blockers.md`.
 
@@ -8,7 +8,7 @@ Mode: **mock services** (`MOCK_EXTERNAL=true`, real n8n 1.123.5 in Docker, exter
 
 | Level | Tool | Passed | Failed | Result |
 | --- | --- | --- | --- | --- |
-| 1 Unit (JS) | Jest | 439 | 0 | Pass – line coverage on `code/` 98.55% (min 80%) |
+| 1 Unit (JS) | Jest | 477 | 0 | Pass – line coverage on `code/` 98.66% (min 80%) |
 | 1 Unit (Python) | pytest | 14 | 0 | Pass |
 | 2 Workflow | run_module.py | 20 modules | 1 modules | Fail |
 | 3 Integration | run_integration.py | 6 | 0 | Pass |
@@ -22,26 +22,26 @@ Mode: **mock services** (`MOCK_EXTERNAL=true`, real n8n 1.123.5 in Docker, exter
 | Module | Checks | Result | Seconds |
 | --- | --- | --- | --- |
 | --help (crashed) | 0/1 | Fail | 0.0 |
-| 00 error handler / Google 500 → 3 retries → Slack | 6/6 | Pass | 13.5 |
-| 01 campaign setup form | 13/13 | Pass | 22.8 |
-| 02 lead sourcing | 29/29 | Pass | 34.3 |
-| 03 enrichment | 24/24 | Pass | 66.1 |
-| 04 AI emails + Campaign ready | 19/19 | Pass | 14.2 |
-| 05 campaign launch | 9/9 | Pass | 14.0 |
-| 06 sending and follow-ups | 13/13 | Pass | 24.4 |
-| 07 reply sorting (all fixtures) | 85/85 | Pass | 65.0 |
-| 07b Calendly | 9/9 | Pass | 11.4 |
+| 00 error handler / Google 500 → 3 retries → Slack | 6/6 | Pass | 14.0 |
+| 01 campaign setup form | 13/13 | Pass | 24.3 |
+| 02 lead sourcing | 29/29 | Pass | 55.4 |
+| 03 enrichment | 24/24 | Pass | 74.1 |
+| 04 AI emails + Campaign ready | 25/25 | Pass | 22.0 |
+| 05 campaign launch | 9/9 | Pass | 16.2 |
+| 06 sending and follow-ups | 14/14 | Pass | 32.9 |
+| 07 reply sorting (all fixtures) | 85/85 | Pass | 81.9 |
+| 07b Calendly | 9/9 | Pass | 15.3 |
 | 07c reminders | 4/4 | Pass | 3.8 |
-| 07d Calendly poll (free plan) | 6/6 | Pass | 49.9 |
+| 07d Calendly poll (free plan) | 6/6 | Pass | 19.7 |
 | 07 newsletter / notification without a lead → stored, no Slack noise | 4/4 | Pass | 3.9 |
-| 07 lead says no after showing interest → meeting cancelled, HubSpot deal Closed lost | 24/24 | Pass | 19.8 |
+| 07 lead says no after showing interest → meeting cancelled, HubSpot deal Closed lost | 24/24 | Pass | 27.5 |
 | 08 reporting | 8/8 | Pass | 3.4 |
 | 08b live dashboard | 8/8 | Pass | 0.2 |
 | 09 inbound lead | 9/9 | Pass | 7.6 |
-| 10 CRM sync | 8/8 | Pass | 42.4 |
+| 10 CRM sync | 33/33 | Pass | 107.3 |
 | 11 Slack buttons | 10/10 | Pass | 66.1 |
-| 12 GDPR delete | 5/5 | Pass | 4.0 |
-| 16 Control Center: login, clients, campaign create/launch/pause, leads, replies | 35/35 | Pass | 93.9 |
+| 12 GDPR delete | 5/5 | Pass | 4.1 |
+| 16 Control Center: login, clients, campaign create/launch/pause, leads, replies | 35/35 | Pass | 95.8 |
 
 ## Level 3 – integration
 
@@ -76,8 +76,8 @@ Mode: **mock services** (`MOCK_EXTERNAL=true`, real n8n 1.123.5 in Docker, exter
 
 ## Level 4 – end-to-end (mock services)
 
-- Run 1: Pass – clicks 3, form → 'Campaign ready' 9.8 s, whole flow 34.8 s
-- Run 2: Pass – clicks 3, form → 'Campaign ready' 9.8 s, whole flow 34.6 s
+- Run 1: Pass – clicks 3, form → 'Campaign ready' 9.7 s, whole flow 42.8 s
+- Run 2: Pass – clicks 3, form → 'Campaign ready' 10.2 s, whole flow 76.5 s
 
 ## Live run on the real services (test mode)
 

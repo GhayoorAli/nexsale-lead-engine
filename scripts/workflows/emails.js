@@ -44,6 +44,8 @@ return $('${source}').all().filter((i) => i.json && i.json.ref && i.json.ok).map
   const v = leads[i.json.ref];
   return { json: { ref: i.json.ref, prompt_id: 'quality_check', max_tokens: 600, temperature: 0, vars: {
     company_summary: v.company_summary, contact_name: v.contact_name, offer: v.offer, industry: v.industry, city: v.city, trigger: v.trigger,
+    // not in the prompt: the writer's own chosen details, so code can verify the opening against each of them
+    details: (i.json.data && Array.isArray(i.json.data.details) ? i.json.data.details : []).map(String).slice(0, 5),
     sequence: seq.map((e) => 'E-Mail ' + e.step + '\\nBetreff: ' + e.subject + '\\n' + e.body).join('\\n\\n'),
     // exact, code-checked facts: the model must not re-count them (live test: it reported 97 words for a 46-word email)
     auto_checks: '- Wortanzahl je E-Mail (E-Mail 1 max. 89, Follow-ups max. 50): ' + seq.map((e) => 'E-Mail ' + e.step + ': ' + M.validateEmails.countWords(e.body)).join(', ') +
@@ -52,17 +54,25 @@ return $('${source}').all().filter((i) => i.json && i.json.ref && i.json.ok).map
 });`, { alwaysOutputData: true });
   qualityReq('Quality requests', 'AI: write sequence');
   w.execWorkflow('AI: quality check', '14_ai_call');
-  w.code('Rewrite requests', [], `
+  w.code('Rewrite requests', ['validators'], `
 const q = Object.fromEntries($('AI: quality check').all().filter((i) => i.json && i.json.ref).map((i) => [i.json.ref, i.json]));
-return $('Sequence requests').all().filter((i) => {
+const qreq = Object.fromEntries($('Quality requests').all().filter((i) => i.json && i.json.ref).map((i) => [i.json.ref, i.json.vars]));
+return $('Sequence requests').all().map((i) => {
   const s = $('AI: write sequence').all().find((x) => x.json && x.json.ref === i.json.ref);
+  if (!s) return null;
   const qq = q[i.json.ref];
-  return s && s.json.ok && qq && qq.ok && Number(qq.data.score) < 80;
-}).map((i) => {
-  const qq = q[i.json.ref];
-  const hint = 'Die vorige Version erhielt nur ' + qq.data.score + '/100. Probleme: ' + (qq.data.issues || []).join('; ') + '. Hinweis: ' + (qq.data.rewrite_hint || '') + '. Schreibe die Sequenz neu und behebe diese Punkte.';
-  return { json: Object.assign({}, i.json, { vars: Object.assign({}, i.json.vars, { retry_note: hint }) }) };
-});`, { alwaysOutputData: true, notes: 'Below 80: rewritten once' });
+  let note;
+  if (!s.json.ok) {
+    if (!s.json.data) return null; // unreadable JSON twice: no text to improve, held as before (spec: retry once)
+    // still broke a fixed rule after the retry: one rewrite with exact fix instructions instead of a lead without emails
+    note = M.validators.rewriteNote(M.validators.fixHints(s.json.errors));
+  } else if (qq && qq.ok && Number(qq.data.score) < 80) {
+    const v = qreq[i.json.ref] || {};
+    const problems = M.validators.qualityFeedback(qq.data, { summary: v.company_summary, sequence: v.sequence, generic: [v.industry, v.city], details: (s.json.data && s.json.data.details) || [] });
+    note = M.validators.rewriteNote(problems, qq.data.score);
+  } else return null;
+  return { json: Object.assign({}, i.json, { vars: Object.assign({}, i.json.vars, { retry_note: note }) }) };
+}).filter(Boolean);`, { alwaysOutputData: true, notes: 'Below 80 or still invalid: rewritten once with exact feedback' });
   w.execWorkflow('AI: rewrite sequence', '14_ai_call');
   qualityReq('Quality 2 requests', 'AI: rewrite sequence');
   w.execWorkflow('AI: quality check 2', '14_ai_call');
@@ -81,12 +91,21 @@ $('Sequence requests').all().forEach((i) => {
   const camp = camps[lead.campaign_record_id] || {};
   const client = clients.find((k) => k.id === camp.client_record_id) || clients[0] || {};
   const footer = M.validateEmails.buildFooter(client);
-  const useRewrite = !!(seq2[ref] && seq2[ref].ok);
+  // keep the better version: the rewrite only replaces a valid first version if it scores at least as high
+  const score = (m) => (m && m.ok ? Number(m.data.score) : -1);
+  const useRewrite = !!(seq2[ref] && seq2[ref].ok) && (!(seq1[ref] && seq1[ref].ok) || score(q2[ref]) >= score(q1[ref]));
   const s = useRewrite ? seq2[ref] : seq1[ref];
   const q = useRewrite ? q2[ref] : q1[ref];
   cost[lead.campaign_record_id] = (cost[lead.campaign_record_id] || 0) + [seq1, q1, seq2, q2].reduce((a, m) => a + ((m[ref] && m[ref].cost_eur) || 0), 0);
   if (!s || !s.ok) {
-    leadUpdates.push({ id: ref, fields: { status: 'Needs review', needs_review_reason: 'AI output invalid after one retry: ' + ((s && s.errors) || ['no output']).join('; ').slice(0, 300) } });
+    // both versions broke a fixed rule: keep the latest draft (if any) so a person can fix it in the Control Center
+    const last = (seq2[ref] && seq2[ref].data) ? seq2[ref] : (seq1[ref] || s);
+    const drafts = last && last.data ? M.validateEmails.normaliseSequence(last.data) : null;
+    if (drafts && drafts.length === 4) drafts.forEach((e) => emails.push({
+      key: lead.company_name + ' · step ' + e.step, lead: [ref], lead_record_id: ref, campaign_record_id: lead.campaign_record_id,
+      step: e.step, subject: e.subject, subject_b: null, body: M.validateEmails.appendFooter(e.body, footer), approved: false, quality_score: 0, status: 'Draft',
+    }));
+    leadUpdates.push({ id: ref, fields: { status: 'Needs review', needs_review_reason: (drafts && drafts.length === 4 ? 'AI text broke a rule after the rewrite: ' : 'AI output invalid after one retry: ') + ((last && last.errors) || ['no output']).join('; ').slice(0, 280) } });
     return;
   }
   const quality = q && q.ok ? Number(q.data.score) : 0;
@@ -133,7 +152,7 @@ const ready = camps.filter((c) => c.leads_sourced !== undefined && c.leads_sourc
 });
 return ready.map((c) => ({ json: { campaign: c, leads: leads.filter((l) => l.campaign_record_id === c.id) } }));`);
   w.atList('Approved emails', 'Emails', "'OR(' + $('Ready campaigns').all().map((i) => \"{campaign_record_id}='\" + i.json.campaign.id + \"'\").join(',') + ')'");
-  w.code('Campaign ready messages', ['airtable', 'slackMessages'], `
+  w.code('Campaign ready messages', ['airtable', 'slackMessages', 'campaignFit'], `
 const cfg = $('Config').first().json.cfg;
 const emails = M.airtable.fromItems($('Approved emails').all());
 return $('Ready campaigns').all().map((i) => {
@@ -145,12 +164,13 @@ return $('Ready campaigns').all().map((i) => {
     return { company: l.company_name, score: l.score, quality: l.quality_score, subject: e1.subject || '', body: String(e1.body || '').split('\\n-- ')[0] };
   });
   const client = M.airtable.fromItems($('Load clients').all()).find((k) => k.id === c.client_record_id) || {};
-  const msg = M.slackMessages.campaignReady({
+  const warnings = M.campaignFit.campaignFit(c, client);
+  const msg = M.slackMessages.campaignReady({ warnings,
     name: c.name, campaignRecordId: c.id, client: client.name, sender: [client.sender_name, client.sender_company].filter(Boolean).join(', '), leadCount: approved.length, avgScore: avg(approved.map((l) => l.score || 0)),
     avgQuality: avg(approved.map((l) => l.quality_score || 0)), flagged: i.json.leads.filter((l) => l.status === 'Needs review').length,
     rejected: i.json.leads.filter((l) => l.status === 'Rejected').length, samples, listUrl: cfg.interfaceUrl || (cfg.n8nBaseUrl + '/webhook/campaign-status?id=' + c.id),
   });
-  return { json: { ref: c.id, text: msg.text, blocks: msg.blocks, approvedCount: approved.length, samples, name: c.name, client: client.name || '',
+  return { json: { ref: c.id, text: msg.text, blocks: msg.blocks, approvedCount: approved.length, samples, name: c.name, client: client.name || '', warnings,
     sender: [client.sender_name, client.sender_company].filter(Boolean).join(', '), avgScore: avg(approved.map((l) => l.score || 0)),
     avgQuality: avg(approved.map((l) => l.quality_score || 0)), flagged: i.json.leads.filter((l) => l.status === 'Needs review').length,
     rejected: i.json.leads.filter((l) => l.status === 'Rejected').length } };
@@ -167,7 +187,7 @@ return M.airtable.updateBatches(updates).map((b) => ({ json: b }));`);
 const cfg = $('Config').first().json.cfg;
 return $('Campaign ready messages').all().map((i) => {
   const m = M.notifications.campaignReadyEmail({ name: i.json.name, client: i.json.client, sender: i.json.sender, leadCount: i.json.approvedCount, avgScore: i.json.avgScore,
-    avgQuality: i.json.avgQuality, flagged: i.json.flagged, rejected: i.json.rejected, samples: i.json.samples,
+    avgQuality: i.json.avgQuality, flagged: i.json.flagged, rejected: i.json.rejected, samples: i.json.samples, warnings: i.json.warnings,
     controlUrl: cfg.n8nBaseUrl + '/webhook/app?p=campaign&id=' + i.json.ref });
   return { json: { ref: 'ready-' + i.json.ref, to: cfg.senderEmail || cfg.testProspectEmail, purpose: 'internal', fromName: 'Nexsale Lead Engine', subject: m.subject, body: m.body, html: m.html } };
 });`);

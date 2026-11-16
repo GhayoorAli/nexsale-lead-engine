@@ -14,7 +14,7 @@ function withoutFooter(body) {
 }
 
 /**
- * c: { name, client, sender, leadCount, avgScore, avgQuality, flagged, rejected, samples:[{company, score, quality, subject, body}], controlUrl }
+ * c: { name, client, sender, leadCount, avgScore, avgQuality, flagged, rejected, samples:[{company, score, quality, subject, body}], warnings:[text], controlUrl }
  * returns { subject, body, html }
  */
 function campaignReadyEmail(c) {
@@ -25,10 +25,12 @@ function campaignReadyEmail(c) {
     ['Ø Lead-Score', o.avgScore || 0], ['Ø E-Mail-Qualität', o.avgQuality || 0],
     ['Zur Prüfung zurückgehalten', o.flagged || 0], ['Bei der Recherche aussortiert', o.rejected || 0],
   ];
+  const warnings = (o.warnings || []).filter(Boolean);
   const subject = 'Kampagne bereit: ' + (o.name || '');
   const line = '────────────────────────────────────────';
   const text = ['Guten Tag,', '',
     'die Kampagne "' + (o.name || '') + '" ist bereit zum Start.', '',
+    ...(warnings.length ? ['ACHTUNG vor dem Start:', ...warnings.map((w) => '- ' + w), ''] : []),
     ...facts.map(([k, v]) => k + ': ' + v), '',
     samples.length ? 'Beispiele (Erst-E-Mail):' : '',
     ...samples.flatMap((s, i) => [line, (i + 1) + '. ' + s.company + ' (Score ' + s.score + ', Qualität ' + s.quality + ')', 'Betreff: ' + s.subject, '', withoutFooter(s.body), '']),
@@ -44,6 +46,7 @@ function campaignReadyEmail(c) {
 <tr><td style="padding:22px 26px 6px;font:13px Arial,Helvetica,sans-serif;color:#6a6a64;">Nexsale Lead Engine</td></tr>
 <tr><td style="padding:0 26px 10px;font:bold 21px/1.3 Arial,Helvetica,sans-serif;color:#1b1b1a;">Kampagne bereit: ${esc(o.name)}</td></tr>
 <tr><td style="padding:0 26px 16px;font:14px/1.5 Arial,Helvetica,sans-serif;color:#1b1b1a;">Die E-Mails sind geschrieben und geprüft. Bitte kurz ansehen und starten.</td></tr>
+${warnings.length ? `<tr><td style="padding:0 26px 14px;"><div style="background:#fdecea;border:1px solid #f1b7b0;border-radius:8px;padding:10px 14px;font:14px/1.5 Arial,Helvetica,sans-serif;color:#8a1c12;"><b>Achtung vor dem Start:</b><br>${warnings.map((w) => esc(w)).join('<br>')}</div></td></tr>` : ''}
 <tr><td style="padding:0 26px 8px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">
 ${facts.map(([k, v]) => `<tr><td style="${td}color:#6a6a64;">${esc(k)}</td><td style="${td}color:#1b1b1a;font-weight:bold;text-align:right;">${esc(v)}</td></tr>`).join('')}
 </table></td></tr>
